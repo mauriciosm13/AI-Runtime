@@ -1,0 +1,2 @@
+# AI Runtime
+# AI Runtime  AI Runtime is an open-source infrastructure platform for building AI-powered applications.  Instead of integrating directly with OpenAI, Anthropic, Gemini, or future providers, applications communicate with AI Runtime through a unified API.  AI Runtime is responsible for model routing, context engineering, tool execution, authentication, observability, streaming, caching, and cost tracking, allowing engineering teams to focus on product development rather than AI infrastructure.
