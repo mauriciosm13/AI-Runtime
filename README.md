@@ -1,2 +1,81 @@
 # AI Runtime
-# AI Runtime  AI Runtime is an open-source infrastructure platform for building AI-powered applications.  Instead of integrating directly with OpenAI, Anthropic, Gemini, or future providers, applications communicate with AI Runtime through a unified API.  AI Runtime is responsible for model routing, context engineering, tool execution, authentication, observability, streaming, caching, and cost tracking, allowing engineering teams to focus on product development rather than AI infrastructure.
+
+AI Runtime is an open-source infrastructure platform for AI-powered applications.
+
+Applications integrate with one provider-agnostic API instead of coupling directly to OpenAI, Anthropic, Gemini, or future model providers. AI Runtime will own the cross-cutting runtime concerns required to operate those integrations reliably.
+
+## Scope
+
+The platform is intended to provide, incrementally:
+
+- provider abstraction and model routing;
+- authentication, organizations, and API keys;
+- streaming and tool execution;
+- context engineering, prompt building, and memory;
+- caching, retries, failover, and cost tracking;
+- observability, metrics, and auditability;
+- deployment tooling and SDKs.
+
+AI Runtime is infrastructure. It is not a chatbot, prompt playground, workflow builder, model-training system, or vector database.
+
+## Architecture
+
+The project uses a lightweight Clean Architecture. Business rules and use cases remain independent of HTTP, persistence, cloud services, and model-provider SDKs.
+
+```text
+Client
+  -> API
+  -> Application
+  -> Domain
+  <- Ports
+  <- Infrastructure / Providers / Telemetry
+```
+
+See [the architecture guide](docs/architecture.md) for layer responsibilities and dependency rules. The initial architectural decision is recorded in [ADR 0001](docs/adr/0001-lightweight-clean-architecture.md).
+
+## Current status
+
+The project is in Phase 0: project discovery and architectural foundations. Runtime code has not been introduced yet.
+
+## Repository layout
+
+```text
+src/
+  ai_runtime/  # distributable application package
+tests/         # test suite
+```
+
+The project uses a `src/` layout so tests and local tooling exercise the installed package rather than accidentally importing source code from the repository root. Architecture-specific packages are added only when their first use case requires them.
+
+## Planned technology stack
+
+- Python 3.13
+- FastAPI and Pydantic v2
+- SQLAlchemy 2 and Alembic
+- PostgreSQL and Redis
+- Docker, Docker Compose, Terraform, and GitHub Actions
+- AWS deployment targets: ECS Fargate, RDS, ElastiCache, ALB, ECR, IAM, Secrets Manager, and CloudWatch
+
+## Development principles
+
+- Keep HTTP endpoints thin and free of business logic.
+- Prefer explicit interfaces and dependency injection.
+- Keep provider adapters free of authorization and routing policy.
+- Use asynchronous I/O for external dependencies.
+- Treat tests, types, structured telemetry, and documentation as product work.
+- Make changes in small, reviewable increments.
+
+## Roadmap
+
+1. Project discovery, architecture, and engineering standards
+2. Application bootstrap, testing, linting, Docker, and CI
+3. Authentication, organizations, API keys, and JWT
+4. Provider layer and model routing
+5. Streaming and tool calling
+6. Context engine
+7. AWS deployment and observability
+8. SDKs
+
+## Contributing
+
+Architecture and implementation changes should be scoped to a small, reviewable task and include the relevant tests and documentation. Consult [AGENTS.md](AGENTS.md) for repository engineering standards.
