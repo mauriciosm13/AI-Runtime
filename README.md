@@ -33,6 +33,14 @@ Client
 
 See [the architecture guide](docs/architecture.md) for layer responsibilities and dependency rules. The initial architectural decision is recorded in [ADR 0001](docs/adr/0001-lightweight-clean-architecture.md).
 
+## Foundation
+
+The foundational system-design documents define the product boundary before runtime code is added:
+
+- [Requirements](docs/foundation/requirements.md)
+- [Data architecture](docs/foundation/data-architecture.md)
+- [API design](docs/foundation/api-design.md)
+
 ## Current status
 
 The project is in Phase 0: project discovery and architectural foundations. Runtime code has not been introduced yet.
@@ -46,6 +54,24 @@ tests/         # test suite
 ```
 
 The project uses a `src/` layout so tests and local tooling exercise the installed package rather than accidentally importing source code from the repository root. Architecture-specific packages are added only when their first use case requires them.
+
+## Local development
+
+AI Runtime targets Python 3.13. Create an isolated environment, install the package with development tools, then run the quality checks:
+
+```bash
+python3.13 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e ".[dev]"
+
+pytest
+ruff check .
+ruff format --check .
+mypy
+```
+
+The package must be installed before testing. This preserves the guarantees of the `src/` layout and prevents tests from importing code directly from the working tree.
 
 ## Planned technology stack
 
