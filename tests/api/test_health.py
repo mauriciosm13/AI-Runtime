@@ -3,12 +3,25 @@
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from ai_runtime.api.app import create_app
+from ai_runtime.config.settings import Environment, Settings
 
 
 def test_create_app_returns_fastapi_instance() -> None:
-    """create_app builds a usable FastAPI application."""
+    """create_app builds a usable FastAPI application without arguments."""
     app = create_app()
     assert isinstance(app, FastAPI)
+
+
+def test_create_app_applies_injected_settings() -> None:
+    """Injected Settings control FastAPI title and debug mode."""
+    settings = Settings(
+        app_name="Injected Runtime",
+        environment=Environment.DEVELOPMENT,
+        debug=True,
+    )
+    app = create_app(settings=settings)
+    assert app.title == "Injected Runtime"
+    assert app.debug is True
 
 
 def test_health_returns_ok() -> None:

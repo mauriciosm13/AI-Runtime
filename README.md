@@ -43,17 +43,29 @@ The foundational system-design documents define the product boundary before runt
 
 ## Current status
 
-The project has a minimal FastAPI bootstrap with an operational liveness endpoint at `GET /health`. Versioned business APIs, authentication, persistence, and providers are not implemented yet.
+The project has a minimal FastAPI bootstrap with typed environment configuration and an operational liveness endpoint at `GET /health`. Versioned business APIs, authentication, persistence, and providers are not implemented yet.
 
 ## Repository layout
 
 ```text
 src/
-  ai_runtime/  # distributable application package
-tests/         # test suite
+  ai_runtime/          # distributable application package
+    api/               # FastAPI application factory and routes
+    config/            # typed Settings loaded from the environment
+tests/                 # test suite
 ```
 
 The project uses a `src/` layout so tests and local tooling exercise the installed package rather than accidentally importing source code from the repository root. Architecture-specific packages are added only when their first use case requires them.
+
+## Configuration
+
+Application settings are loaded from environment variables with the `AI_RUNTIME_` prefix via `pydantic-settings`. Values are validated at construction time and injected into the application factory; there is no process-wide mutable settings singleton.
+
+| Variable | Field | Type | Default |
+| --- | --- | --- | --- |
+| `AI_RUNTIME_APP_NAME` | `app_name` | `str` | `AI Runtime` |
+| `AI_RUNTIME_ENVIRONMENT` | `environment` | `local` \| `development` \| `staging` \| `production` | `local` |
+| `AI_RUNTIME_DEBUG` | `debug` | `bool` | `false` |
 
 ## Local development
 
@@ -82,6 +94,8 @@ Pull requests and pushes to `main` automatically run the same quality checks thr
 With the editable install active, start the application using Uvicorn's factory mode:
 
 ```bash
+AI_RUNTIME_ENVIRONMENT=local \
+AI_RUNTIME_DEBUG=true \
 uvicorn ai_runtime.api.app:create_app --factory --reload
 ```
 
