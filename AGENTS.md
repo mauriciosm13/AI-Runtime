@@ -195,6 +195,7 @@ Always:
 - keep functions small
 - keep modules focused
 - document public interfaces
+- keep import declarations contiguous; do not leave blank lines between imports
 
 Avoid:
 
