@@ -43,11 +43,15 @@ The domain layer contains provider-agnostic business concepts and rules: model c
 
 A domain rule belongs here when it would still apply if FastAPI, PostgreSQL, Redis, and every provider were replaced.
 
+The first concrete domain contracts live under `domain/` and describe provider-neutral text generation: `MessageRole`, `Message`, `GenerationRequest`, `TokenUsage`, and `GenerationResponse`. These types carry only generation invariants; they do not know about HTTP, SDKs, or routing.
+
 ### Ports
 
 Ports are stable interfaces required by application use cases. They describe capabilities, not technologies: for example, an organization repository, model invocation client, cache, clock, or telemetry emitter.
 
 Ports prevent use cases from depending on concrete adapters. They should be introduced only where a real external boundary or test seam exists.
+
+The first port is `ModelProvider` in `ports/model_provider.py`: an asynchronous `generate` contract that accepts a `GenerationRequest` and returns a `GenerationResponse`. Provider adapters will implement this interface later.
 
 ### Providers
 

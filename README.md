@@ -43,7 +43,7 @@ The foundational system-design documents define the product boundary before runt
 
 ## Current status
 
-The project has a minimal FastAPI bootstrap with typed environment configuration and an operational liveness endpoint at `GET /health`. A multi-stage Docker image runs the same application locally without relying on the host Python install. Versioned business APIs, authentication, persistence, and providers are not implemented yet.
+The project has a minimal FastAPI bootstrap with typed environment configuration and an operational liveness endpoint at `GET /health`. Provider-neutral generation contracts live in `domain/`, and `ports/` defines the first external capability interface (`ModelProvider`). A multi-stage Docker image runs the same application locally without relying on the host Python install. Versioned business APIs such as `POST /v1/responses`, authentication, persistence, and concrete provider adapters are not implemented yet.
 
 ## Repository layout
 
@@ -52,6 +52,8 @@ src/
   ai_runtime/          # distributable application package
     api/               # FastAPI application factory and routes
     config/            # typed Settings loaded from the environment
+    domain/            # provider-neutral generation contracts
+    ports/             # interfaces for external capabilities (ModelProvider)
 tests/                 # test suite
 Dockerfile             # multi-stage image for local execution
 .dockerignore          # build context exclusions
