@@ -43,7 +43,7 @@ The foundational system-design documents define the product boundary before runt
 
 ## Current status
 
-The project has a minimal FastAPI bootstrap with typed environment configuration and an operational liveness endpoint at `GET /health`. Versioned business APIs, authentication, persistence, and providers are not implemented yet.
+The project has a minimal FastAPI bootstrap with typed environment configuration and an operational liveness endpoint at `GET /health`. A multi-stage Docker image runs the same application locally without relying on the host Python install. Versioned business APIs, authentication, persistence, and providers are not implemented yet.
 
 ## Repository layout
 
@@ -53,6 +53,8 @@ src/
     api/               # FastAPI application factory and routes
     config/            # typed Settings loaded from the environment
 tests/                 # test suite
+Dockerfile             # multi-stage image for local execution
+.dockerignore          # build context exclusions
 ```
 
 The project uses a `src/` layout so tests and local tooling exercise the installed package rather than accidentally importing source code from the repository root. Architecture-specific packages are added only when their first use case requires them.
@@ -104,6 +106,32 @@ While the server is running:
 - Health: [http://127.0.0.1:8000/health](http://127.0.0.1:8000/health)
 - OpenAPI (Swagger UI): [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
 - OpenAPI JSON: [http://127.0.0.1:8000/openapi.json](http://127.0.0.1:8000/openapi.json)
+
+## Running with Docker
+
+Build a reproducible local image (Python 3.13, non-root process, production package install without development extras):
+
+```bash
+docker build --tag ai-runtime:local .
+```
+
+Run the container and map port 8000:
+
+```bash
+docker run --rm \
+  --publish 8000:8000 \
+  --env AI_RUNTIME_ENVIRONMENT=local \
+  --env AI_RUNTIME_DEBUG=false \
+  ai-runtime:local
+```
+
+In another terminal, confirm liveness:
+
+```bash
+curl -i http://127.0.0.1:8000/health
+```
+
+The expected response is `200 OK` with `{"status":"ok"}`.
 
 ## Planned technology stack
 
