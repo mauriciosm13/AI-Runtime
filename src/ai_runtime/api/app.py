@@ -1,4 +1,5 @@
 """FastAPI application factory."""
+
 from fastapi import FastAPI
 from ai_runtime.config.settings import Settings
 from ai_runtime.api.routes.health import router as health_router
