@@ -43,7 +43,7 @@ The foundational system-design documents define the product boundary before runt
 
 ## Current status
 
-The project is in Phase 0: project discovery and architectural foundations. Runtime code has not been introduced yet.
+The project has a minimal FastAPI bootstrap with an operational liveness endpoint at `GET /health`. Versioned business APIs, authentication, persistence, and providers are not implemented yet.
 
 ## Repository layout
 
@@ -72,6 +72,20 @@ mypy
 ```
 
 The package must be installed before testing. This preserves the guarantees of the `src/` layout and prevents tests from importing code directly from the working tree.
+
+## Running the API locally
+
+With the editable install active, start the application using Uvicorn's factory mode:
+
+```bash
+uvicorn ai_runtime.api.app:create_app --factory --reload
+```
+
+While the server is running:
+
+- Health: [http://127.0.0.1:8000/health](http://127.0.0.1:8000/health)
+- OpenAPI (Swagger UI): [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
+- OpenAPI JSON: [http://127.0.0.1:8000/openapi.json](http://127.0.0.1:8000/openapi.json)
 
 ## Planned technology stack
 
