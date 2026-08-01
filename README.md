@@ -73,6 +73,10 @@ mypy
 
 The package must be installed before testing. This preserves the guarantees of the `src/` layout and prevents tests from importing code directly from the working tree.
 
+## Continuous integration
+
+Pull requests and pushes to `main` automatically run the same quality checks through GitHub Actions: `pytest`, `ruff check`, `ruff format --check`, and `mypy`. A failing check blocks merge until the suite is green.
+
 ## Running the API locally
 
 With the editable install active, start the application using Uvicorn's factory mode:
