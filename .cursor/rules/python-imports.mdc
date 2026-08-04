@@ -1,0 +1,27 @@
+---
+description: Enforce single-line comma-separated Python imports
+globs: "**/*.py"
+alwaysApply: false
+---
+
+# Python import style
+
+Keep `from ... import` names on **one line**, comma-separated.
+
+Do **not** wrap imports with parentheses across multiple lines.
+
+```python
+# Correct
+from ai_runtime.domain.generation import GenerationRequest, GenerationResponse, Message, MessageRole, TokenUsage
+
+# Incorrect
+from ai_runtime.domain.generation import (
+    GenerationRequest,
+    GenerationResponse,
+    Message,
+    MessageRole,
+    TokenUsage,
+)
+```
+
+Also keep import declarations contiguous: no blank lines between import statements.

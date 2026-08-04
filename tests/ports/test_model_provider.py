@@ -1,13 +1,7 @@
 """Unit tests for the ModelProvider port contract."""
 
 import asyncio
-from ai_runtime.domain.generation import (
-    GenerationRequest,
-    GenerationResponse,
-    Message,
-    MessageRole,
-    TokenUsage,
-)
+from ai_runtime.domain.generation import GenerationRequest, GenerationResponse, Message, MessageRole, TokenUsage
 from ai_runtime.ports.model_provider import ModelProvider
 
 

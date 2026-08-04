@@ -196,6 +196,25 @@ Always:
 - keep modules focused
 - document public interfaces
 - keep import declarations contiguous; do not leave blank lines between imports
+- write `from ... import` names on a single line, comma-separated; do not wrap imports with parentheses across multiple lines
+
+Correct import style:
+
+```python
+from ai_runtime.domain.generation import GenerationRequest, GenerationResponse, Message, MessageRole, TokenUsage
+```
+
+Incorrect import style:
+
+```python
+from ai_runtime.domain.generation import (
+    GenerationRequest,
+    GenerationResponse,
+    Message,
+    MessageRole,
+    TokenUsage,
+)
+```
 
 Avoid:
 

@@ -51,11 +51,13 @@ Ports are stable interfaces required by application use cases. They describe cap
 
 Ports prevent use cases from depending on concrete adapters. They should be introduced only where a real external boundary or test seam exists.
 
-The first port is `ModelProvider` in `ports/model_provider.py`: an asynchronous `generate` contract that accepts a `GenerationRequest` and returns a `GenerationResponse`. Provider adapters will implement this interface later.
+The first port is `ModelProvider` in `ports/model_provider.py`: an asynchronous `generate` contract that accepts a `GenerationRequest` and returns a `GenerationResponse`. Concrete adapters under `providers/` implement this interface.
 
 ### Providers
 
 Provider adapters implement model-invocation ports for OpenAI, Anthropic, Gemini, and future providers. They translate AI Runtime's provider-neutral requests and responses to each vendor's SDK or HTTP API.
+
+The first concrete adapter is `OpenAIModelProvider` under `providers/openai/`. It implements `ModelProvider` by mapping `GenerationRequest` / `GenerationResponse` to the OpenAI Chat Completions HTTP API using `httpx`. It does not decide routing, authorization, retries, failover, streaming, or tool calling.
 
 Providers do not decide which model to select, whether an organization is authorized, or how usage is persisted.
 

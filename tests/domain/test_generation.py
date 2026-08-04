@@ -1,14 +1,7 @@
 """Unit tests for provider-neutral generation domain contracts."""
 
 import pytest
-from ai_runtime.domain.generation import (
-    DomainValidationError,
-    GenerationRequest,
-    GenerationResponse,
-    Message,
-    MessageRole,
-    TokenUsage,
-)
+from ai_runtime.domain.generation import DomainValidationError, GenerationRequest, GenerationResponse, Message, MessageRole, TokenUsage
 
 
 def test_valid_message_request_and_response() -> None:

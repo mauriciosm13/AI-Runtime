@@ -19,13 +19,13 @@ classifiers = [
 ]
 dependencies = [
   "fastapi>=0.115.0",
+  "httpx>=0.28.0",
   "pydantic-settings>=2.8.0",
   "uvicorn>=0.34.0",
 ]
 
 [project.optional-dependencies]
 dev = [
-  "httpx>=0.28.0",
   "mypy>=1.15.0",
   "pytest>=8.3.0",
   "ruff>=0.11.0",
@@ -40,7 +40,8 @@ addopts = ["--strict-config", "--strict-markers"]
 
 [tool.ruff]
 target-version = "py313"
-line-length = 100
+# Keep room for single-line `from ... import a, b, c` (project style forbids parenthesized multi-line imports).
+line-length = 140
 
 [tool.ruff.lint]
 select = ["E", "F", "UP"]
