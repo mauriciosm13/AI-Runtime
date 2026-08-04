@@ -43,14 +43,14 @@ The foundational system-design documents define the product boundary before runt
 
 ## Current status
 
-The project has a minimal FastAPI bootstrap with typed environment configuration and an operational liveness endpoint at `GET /health`. Provider-neutral generation contracts live in `domain/`, `ports/` defines the first external capability interface (`ModelProvider`), and `application/responses/` contains the first use case (`CreateResponse`). The first concrete provider adapter is `OpenAIModelProvider` under `providers/openai/`, which calls OpenAI Chat Completions over `httpx`. A multi-stage Docker image runs the same application locally without relying on the host Python install. Versioned business APIs such as `POST /v1/responses`, authentication, persistence, and provider wiring into the API are not implemented yet; `CreateResponse` is not exposed via HTTP.
+The project has a minimal FastAPI bootstrap with typed environment configuration and an operational liveness endpoint at `GET /health`. Provider-neutral generation contracts live in `domain/`, `ports/` defines the first external capability interface (`ModelProvider`), and `application/responses/` contains the first use case (`CreateResponse`). The first concrete provider adapter is `OpenAIModelProvider` under `providers/openai/`, which calls OpenAI Chat Completions over `httpx`. `POST /v1/responses` exposes `CreateResponse` through HTTP with Pydantic schemas, dependency injection, and a shared `httpx.AsyncClient` managed by the application lifespan. Authentication, standardized error envelopes, persistence, and provider routing are not implemented yet.
 
 ## Repository layout
 
 ```text
 src/
   ai_runtime/          # distributable application package
-    api/               # FastAPI application factory and routes
+    api/               # FastAPI application factory, routes, schemas, dependencies
     application/       # use cases (CreateResponse)
     config/            # typed Settings loaded from the environment
     domain/            # provider-neutral generation contracts
@@ -72,6 +72,8 @@ Application settings are loaded from environment variables with the `AI_RUNTIME_
 | `AI_RUNTIME_APP_NAME` | `app_name` | `str` | `AI Runtime` |
 | `AI_RUNTIME_ENVIRONMENT` | `environment` | `local` \| `development` \| `staging` \| `production` | `local` |
 | `AI_RUNTIME_DEBUG` | `debug` | `bool` | `false` |
+| `AI_RUNTIME_OPENAI_API_KEY` | `openai_api_key` | `str` | `""` |
+| `AI_RUNTIME_OPENAI_BASE_URL` | `openai_base_url` | `str` | `https://api.openai.com/v1` |
 
 ## Local development
 
@@ -108,8 +110,20 @@ uvicorn ai_runtime.api.app:create_app --factory --reload
 While the server is running:
 
 - Health: [http://127.0.0.1:8000/health](http://127.0.0.1:8000/health)
+- Create response: `POST /v1/responses` (requires `AI_RUNTIME_OPENAI_API_KEY` for real provider calls)
 - OpenAPI (Swagger UI): [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
 - OpenAPI JSON: [http://127.0.0.1:8000/openapi.json](http://127.0.0.1:8000/openapi.json)
+
+Example request:
+
+```bash
+curl -sS http://127.0.0.1:8000/v1/responses \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-4o-mini",
+    "messages": [{"role": "user", "content": "Hello"}]
+  }'
+```
 
 ## Running with Docker
 

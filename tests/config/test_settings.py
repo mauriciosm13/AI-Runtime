@@ -9,6 +9,8 @@ _SETTINGS_ENV_VARS = (
     "AI_RUNTIME_APP_NAME",
     "AI_RUNTIME_ENVIRONMENT",
     "AI_RUNTIME_DEBUG",
+    "AI_RUNTIME_OPENAI_API_KEY",
+    "AI_RUNTIME_OPENAI_BASE_URL",
 )
 
 
@@ -25,6 +27,8 @@ def test_settings_defaults(monkeypatch: MonkeyPatch) -> None:
     assert settings.app_name == "AI Runtime"
     assert settings.environment is Environment.LOCAL
     assert settings.debug is False
+    assert settings.openai_api_key == ""
+    assert settings.openai_base_url == "https://api.openai.com/v1"
 
 
 def test_settings_override_from_environment(monkeypatch: MonkeyPatch) -> None:

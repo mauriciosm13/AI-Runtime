@@ -31,13 +31,15 @@ Infrastructure / Providers / Telemetry
 
 The API layer owns FastAPI routes, HTTP request and response schemas, authentication extraction, exception-to-HTTP mapping, and dependency wiring. A route validates input, invokes one use case, and serializes the result. It contains no authorization policy, routing policy, provider selection, or persistence logic.
 
+`POST /v1/responses` validates a JSON body with Pydantic schemas, maps it to `GenerationRequest`, invokes `CreateResponse`, and serializes `GenerationResponse`. Provider failures map to `502 Bad Gateway`; validation failures map to `422 Unprocessable Entity`. The composition root wires `OpenAIModelProvider` through FastAPI dependencies and stores a shared `httpx.AsyncClient` on the application lifespan.
+
 ### Application
 
 The application layer implements use cases. It coordinates domain policies with ports, transactions, provider calls, persistence, cache access, and telemetry. Examples include generating a completion, issuing an API key, and recording usage.
 
 Application code expresses workflows; it does not contain HTTP-specific concerns or direct SQLAlchemy, Redis, AWS, or provider-SDK calls.
 
-The first use case is `CreateResponse` in `application/responses/`. It receives a provider-neutral `GenerationRequest`, delegates generation to an injected `ModelProvider`, and returns the resulting `GenerationResponse`. It is not exposed via HTTP yet.
+The first use case is `CreateResponse` in `application/responses/`. It receives a provider-neutral `GenerationRequest`, delegates generation to an injected `ModelProvider`, and returns the resulting `GenerationResponse`. It is exposed through `POST /v1/responses` in the API layer.
 
 ### Domain
 

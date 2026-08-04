@@ -16,7 +16,7 @@ The table describes the planned initial API surface. `Planned` routes document t
 | --- | --- | --- | --- |
 | `GET` | `/health` | First endpoint | Liveness: confirms the process can serve HTTP. |
 | `GET` | `/ready` | Planned | Readiness: confirms required runtime dependencies are usable. |
-| `POST` | `/v1/responses` | Planned | Creates a provider-neutral model response. |
+| `POST` | `/v1/responses` | Implemented | Creates a provider-neutral model response. |
 | `GET` | `/v1/models` | Planned | Lists models available to the authenticated organization. |
 | `POST` | `/v1/organizations` | Planned, operator-only | Creates an organization. |
 | `GET` | `/v1/organizations/{organization_id}` | Planned, operator-only | Retrieves organization configuration. |
