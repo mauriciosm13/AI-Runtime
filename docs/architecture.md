@@ -37,6 +37,8 @@ The application layer implements use cases. It coordinates domain policies with 
 
 Application code expresses workflows; it does not contain HTTP-specific concerns or direct SQLAlchemy, Redis, AWS, or provider-SDK calls.
 
+The first use case is `CreateResponse` in `application/responses/`. It receives a provider-neutral `GenerationRequest`, delegates generation to an injected `ModelProvider`, and returns the resulting `GenerationResponse`. It is not exposed via HTTP yet.
+
 ### Domain
 
 The domain layer contains provider-agnostic business concepts and rules: model capabilities, organization entitlements, routing eligibility, usage and cost value objects, and domain errors.

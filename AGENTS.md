@@ -195,8 +195,9 @@ Always:
 - keep functions small
 - keep modules focused
 - document public interfaces
-- keep import declarations contiguous; do not leave blank lines between imports
-- write `from ... import` names on a single line, comma-separated; do not wrap imports with parentheses across multiple lines
+- import declarations must form one contiguous block; never leave blank lines between import declarations
+- every `from ... import` declaration must remain on one line, with imported names separated by commas
+- never use parenthesized multi-line imports, even when the line would otherwise exceed the preferred length
 
 Correct import style:
 
