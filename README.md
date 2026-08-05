@@ -77,7 +77,7 @@ Application settings are loaded from environment variables with the `AI_RUNTIME_
 
 ## Local development
 
-AI Runtime targets Python 3.13. Create an isolated environment, install the package with development tools, then run the quality checks:
+AI Runtime targets Python 3.13. Run all commands from the repository root (the directory that contains `pyproject.toml`). Create an isolated environment, install the package in editable mode with development tools, then run the quality checks:
 
 ```bash
 python3.13 -m venv .venv
@@ -93,9 +93,24 @@ mypy
 
 The package must be installed before testing. This preserves the guarantees of the `src/` layout and prevents tests from importing code directly from the working tree.
 
+Confirm the editable install resolved the source tree:
+
+```bash
+python -c "import ai_runtime; print(ai_runtime.__file__)"
+```
+
+The printed path should include `src/ai_runtime/`.
+
+### Troubleshooting
+
+- **`ModuleNotFoundError: No module named 'ai_runtime'`** — activate the virtual environment and run `pip install -e ".[dev]"` from the repository root. Do not set `PYTHONPATH=src`; tests and tooling expect the installed distribution.
+- **Wrong virtual environment** — ensure `.venv` was created in the repository root, not in a parent directory.
+
 ## Continuous integration
 
-Pull requests and pushes to `main` automatically run the same quality checks through GitHub Actions: `pytest`, `ruff check`, `ruff format --check`, and `mypy`. A failing check blocks merge until the suite is green.
+Pull requests and pushes to `main` automatically run the same quality checks through GitHub Actions: editable install (`pip install -e ".[dev]"`), `pytest`, `ruff check`, `ruff format --check`, and `mypy`. Local development and CI follow the same install flow. A failing check blocks merge until the suite is green.
+
+Docker and production images use a non-editable install (`pip install .`) because they ship a fixed artifact rather than a live source tree.
 
 ## Running the API locally
 

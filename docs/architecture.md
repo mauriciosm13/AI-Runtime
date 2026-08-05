@@ -109,6 +109,8 @@ src/ai_runtime/
 
 Packages will be created as the relevant feature is implemented. Empty packages are avoided because directory structure alone does not provide an architectural boundary.
 
+The `src/` layout requires the package to be installed before running tests or local tooling. Development and CI use an editable install (`pip install -e ".[dev]"`); imports resolve through the installed distribution, not by adding the repository to `PYTHONPATH`. This ensures tests exercise the distributable artifact rather than accidentally importing source files from the working tree.
+
 ## Boundary tests
 
 As code is added, the project should enforce these rules with focused architecture tests and code review. At minimum, tests should ensure that `domain` and `application` do not import external frameworks or provider SDKs.
