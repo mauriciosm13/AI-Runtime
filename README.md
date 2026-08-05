@@ -43,19 +43,20 @@ The foundational system-design documents define the product boundary before runt
 
 ## Current status
 
-The project has a minimal FastAPI bootstrap with typed environment configuration and an operational liveness endpoint at `GET /health`. Provider-neutral generation contracts live in `domain/`, `ports/` defines the first external capability interface (`ModelProvider`), and `application/responses/` contains the first use case (`CreateResponse`). The first concrete provider adapter is `OpenAIModelProvider` under `providers/openai/`, which calls OpenAI Chat Completions over `httpx`. `POST /v1/responses` exposes `CreateResponse` through HTTP with Pydantic schemas, dependency injection, and a shared `httpx.AsyncClient` managed by the application lifespan. Client-facing errors use a standardized provider-neutral envelope with stable error codes. Authentication, persistence, and provider routing are not implemented yet.
+The project has a minimal FastAPI bootstrap with typed environment configuration and an operational liveness endpoint at `GET /health`. Provider-neutral generation contracts live in `domain/`, `ports/` defines the first external capability interface (`ModelProvider`), and `application/responses/` contains the first use case (`CreateResponse`). The first concrete provider adapter is `OpenAIModelProvider` under `providers/openai/`, which calls OpenAI Chat Completions over `httpx`. `POST /v1/responses` exposes `CreateResponse` through HTTP with Pydantic schemas, dependency injection, and a shared `httpx.AsyncClient` managed by the application lifespan. Client-facing errors use a standardized provider-neutral envelope with stable error codes and a per-request correlation identifier (`X-Request-ID`). Structured JSON request logs record request start and completion with the same identifier. Authentication, persistence, and provider routing are not implemented yet.
 
 ## Repository layout
 
 ```text
 src/
   ai_runtime/          # distributable application package
-    api/               # FastAPI application factory, routes, schemas, dependencies
+    api/               # FastAPI application factory, routes, schemas, dependencies, middleware
     application/       # use cases (CreateResponse)
     config/            # typed Settings loaded from the environment
     domain/            # provider-neutral generation contracts
     ports/             # interfaces for external capabilities (ModelProvider)
     providers/         # concrete model-provider adapters (OpenAI via httpx)
+    telemetry/         # structured logging configuration
 tests/                 # test suite
 Dockerfile             # multi-stage image for local execution
 .dockerignore          # build context exclusions
@@ -72,8 +73,15 @@ Application settings are loaded from environment variables with the `AI_RUNTIME_
 | `AI_RUNTIME_APP_NAME` | `app_name` | `str` | `AI Runtime` |
 | `AI_RUNTIME_ENVIRONMENT` | `environment` | `local` \| `development` \| `staging` \| `production` | `local` |
 | `AI_RUNTIME_DEBUG` | `debug` | `bool` | `false` |
+| `AI_RUNTIME_LOG_LEVEL` | `log_level` | `str` | `INFO` |
 | `AI_RUNTIME_OPENAI_API_KEY` | `openai_api_key` | `str` | `""` |
 | `AI_RUNTIME_OPENAI_BASE_URL` | `openai_base_url` | `str` | `https://api.openai.com/v1` |
+
+## Request correlation
+
+Every HTTP request receives a correlation identifier exposed as the `X-Request-ID` response header. Clients may send their own value in the same header; when absent or invalid, the server generates one in the form `req_<uuid>`. Error responses include the same identifier in `error.request_id`. Structured JSON logs for request start and completion use the same value for correlation.
+
+This identifier tracks the HTTP request lifecycle. It is distinct from `response.id`, which identifies a model generation result.
 
 ## Local development
 
@@ -129,7 +137,13 @@ While the server is running:
 - OpenAPI (Swagger UI): [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
 - OpenAPI JSON: [http://127.0.0.1:8000/openapi.json](http://127.0.0.1:8000/openapi.json)
 
-Example request:
+```bash
+curl -i http://127.0.0.1:8000/health
+```
+
+The response includes an `X-Request-ID` header for request correlation.
+
+Example generation request:
 
 ```bash
 curl -sS http://127.0.0.1:8000/v1/responses \

@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from ai_runtime.api.app import create_app
 from ai_runtime.api.dependencies import get_create_response
+from ai_runtime.api.middleware.request_context import REQUEST_ID_HEADER
 from ai_runtime.application.responses.create_response import CreateResponse
 from ai_runtime.domain.generation import GenerationRequest, GenerationResponse, Message, MessageRole, TokenUsage
 from ai_runtime.providers.openai.errors import ProviderError
@@ -63,6 +64,7 @@ def test_post_responses_returns_200_with_expected_payload() -> None:
     client = _client_with_provider(provider)
     response = client.post("/v1/responses", json=_request_body())
     assert response.status_code == 200
+    assert REQUEST_ID_HEADER in response.headers
     assert response.json() == {
         "id": "resp_abc",
         "model": "gpt-4o-mini",
@@ -136,10 +138,12 @@ def test_post_responses_returns_502_for_provider_failure() -> None:
     client = _client_with_provider(provider)
     response = client.post("/v1/responses", json=_request_body())
     assert response.status_code == 502
+    request_id = response.headers[REQUEST_ID_HEADER]
     assert response.json() == {
         "error": {
             "code": "provider_error",
             "message": "generation failed",
+            "request_id": request_id,
         },
     }
 

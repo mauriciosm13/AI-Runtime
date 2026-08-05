@@ -3,9 +3,11 @@
 from fastapi import FastAPI
 from ai_runtime.api.dependencies import application_lifespan
 from ai_runtime.api.exception_handlers import register_exception_handlers
+from ai_runtime.api.middleware.request_context import register_request_context_middleware
 from ai_runtime.api.routes.health import router as health_router
 from ai_runtime.api.routes.responses import router as responses_router
 from ai_runtime.config.settings import Settings
+from ai_runtime.telemetry.logging import configure_logging
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -16,6 +18,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     or alternative entrypoints; no process-wide settings singleton is used.
     """
     resolved = settings if settings is not None else Settings()
+    configure_logging(resolved.log_level)
     app = FastAPI(
         title=resolved.app_name,
         version="0.1.0",
@@ -23,6 +26,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lifespan=application_lifespan,
     )
     app.state.settings = resolved
+    register_request_context_middleware(app)
     register_exception_handlers(app)
     app.include_router(health_router)
     app.include_router(responses_router, prefix="/v1")

@@ -29,7 +29,9 @@ Infrastructure / Providers / Telemetry
 
 ### API
 
-The API layer owns FastAPI routes, HTTP request and response schemas, authentication extraction, exception-to-HTTP mapping, and dependency wiring. A route validates input, invokes one use case, and serializes the result. It contains no authorization policy, routing policy, provider selection, or persistence logic.
+The API layer owns FastAPI routes, HTTP request and response schemas, authentication extraction, exception-to-HTTP mapping, request correlation middleware, and dependency wiring. A route validates input, invokes one use case, and serializes the result. It contains no authorization policy, routing policy, provider selection, or persistence logic.
+
+Request correlation is handled by middleware in `api/middleware/request_context.py`. Each HTTP request receives a `request_id` stored on `request.state`, echoed in the `X-Request-ID` response header, included in error envelopes, and emitted in structured request logs. Routes and exception handlers do not generate correlation identifiers inline.
 
 `POST /v1/responses` validates a JSON body with Pydantic schemas, maps it to `GenerationRequest`, invokes `CreateResponse`, and serializes `GenerationResponse`. Provider failures map to `502 Bad Gateway`; validation failures map to `422 Unprocessable Entity`. Both use the standardized error envelope defined in `api/schemas/errors.py` and registered through `api/exception_handlers.py`. The composition root wires `OpenAIModelProvider` through FastAPI dependencies and stores a shared `httpx.AsyncClient` on the application lifespan.
 
@@ -72,6 +74,8 @@ Infrastructure contains concrete external integrations: SQLAlchemy repositories,
 ### Telemetry
 
 Telemetry provides structured logs, traces, metrics, audit events, and usage/cost signals. It is invoked through explicit interfaces so observability remains consistent and does not leak framework concerns into business rules.
+
+The first telemetry capability is structured JSON request logging in `telemetry/logging.py`, configured during application bootstrap. Request lifecycle logs are emitted by API middleware and include `request_id`, HTTP method, path, status code, and duration. Logs intentionally exclude secrets, authorization headers, and message bodies.
 
 ### Configuration
 

@@ -66,6 +66,18 @@ Client-facing errors use a stable provider-neutral envelope:
 
 Error codes are stable programmatic identifiers. Messages are safe for clients and must not expose credentials, provider internals, or tenant data. The initial implementation will define the exact error-code catalog alongside its use cases.
 
+### Request correlation (implemented)
+
+Every HTTP request is assigned a correlation identifier:
+
+- Clients may send `X-Request-ID` with a value up to 128 characters using `[A-Za-z0-9._:-]`.
+- When the header is absent or invalid, the server generates `req_<uuid>`.
+- All HTTP responses include `X-Request-ID` with the identifier used for that request.
+- Error envelopes include the same value in `error.request_id`.
+- Structured request logs use the same identifier for start and completion events.
+
+This HTTP correlation identifier is distinct from `response.id`, which identifies a model generation result returned by `POST /v1/responses`.
+
 ## HTTP semantics
 
 - `200 OK` represents a successful read or completed non-streaming response.
