@@ -1,7 +1,7 @@
 """Schemas for POST /v1/responses."""
 
 from pydantic import BaseModel, ConfigDict, Field
-from ai_runtime.domain.generation import DomainValidationError, GenerationRequest, GenerationResponse, Message, MessageRole, TokenUsage
+from ai_runtime.domain.generation import GenerationRequest, GenerationResponse, Message, MessageRole, TokenUsage
 
 
 class MessageSchema(BaseModel):
@@ -25,15 +25,12 @@ class CreateResponseRequest(BaseModel):
 
     def to_domain(self) -> GenerationRequest:
         """Map this API payload to a domain GenerationRequest."""
-        try:
-            return GenerationRequest(
-                model=self.model,
-                messages=tuple(Message(role=message.role, content=message.content) for message in self.messages),
-                temperature=self.temperature,
-                max_output_tokens=self.max_output_tokens,
-            )
-        except DomainValidationError as err:
-            raise ValueError(str(err)) from err
+        return GenerationRequest(
+            model=self.model,
+            messages=tuple(Message(role=message.role, content=message.content) for message in self.messages),
+            temperature=self.temperature,
+            max_output_tokens=self.max_output_tokens,
+        )
 
 
 class TokenUsageSchema(BaseModel):

@@ -43,7 +43,7 @@ The foundational system-design documents define the product boundary before runt
 
 ## Current status
 
-The project has a minimal FastAPI bootstrap with typed environment configuration and an operational liveness endpoint at `GET /health`. Provider-neutral generation contracts live in `domain/`, `ports/` defines the first external capability interface (`ModelProvider`), and `application/responses/` contains the first use case (`CreateResponse`). The first concrete provider adapter is `OpenAIModelProvider` under `providers/openai/`, which calls OpenAI Chat Completions over `httpx`. `POST /v1/responses` exposes `CreateResponse` through HTTP with Pydantic schemas, dependency injection, and a shared `httpx.AsyncClient` managed by the application lifespan. Authentication, standardized error envelopes, persistence, and provider routing are not implemented yet.
+The project has a minimal FastAPI bootstrap with typed environment configuration and an operational liveness endpoint at `GET /health`. Provider-neutral generation contracts live in `domain/`, `ports/` defines the first external capability interface (`ModelProvider`), and `application/responses/` contains the first use case (`CreateResponse`). The first concrete provider adapter is `OpenAIModelProvider` under `providers/openai/`, which calls OpenAI Chat Completions over `httpx`. `POST /v1/responses` exposes `CreateResponse` through HTTP with Pydantic schemas, dependency injection, and a shared `httpx.AsyncClient` managed by the application lifespan. Client-facing errors use a standardized provider-neutral envelope with stable error codes. Authentication, persistence, and provider routing are not implemented yet.
 
 ## Repository layout
 

@@ -2,6 +2,7 @@
 
 from fastapi import FastAPI
 from ai_runtime.api.dependencies import application_lifespan
+from ai_runtime.api.exception_handlers import register_exception_handlers
 from ai_runtime.api.routes.health import router as health_router
 from ai_runtime.api.routes.responses import router as responses_router
 from ai_runtime.config.settings import Settings
@@ -22,6 +23,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lifespan=application_lifespan,
     )
     app.state.settings = resolved
+    register_exception_handlers(app)
     app.include_router(health_router)
     app.include_router(responses_router, prefix="/v1")
     return app

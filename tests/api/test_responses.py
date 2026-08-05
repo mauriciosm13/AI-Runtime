@@ -136,7 +136,12 @@ def test_post_responses_returns_502_for_provider_failure() -> None:
     client = _client_with_provider(provider)
     response = client.post("/v1/responses", json=_request_body())
     assert response.status_code == 502
-    assert response.json() == {"detail": "generation failed"}
+    assert response.json() == {
+        "error": {
+            "code": "provider_error",
+            "message": "generation failed",
+        },
+    }
 
 
 def test_post_responses_is_documented_in_openapi() -> None:

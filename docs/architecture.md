@@ -31,7 +31,7 @@ Infrastructure / Providers / Telemetry
 
 The API layer owns FastAPI routes, HTTP request and response schemas, authentication extraction, exception-to-HTTP mapping, and dependency wiring. A route validates input, invokes one use case, and serializes the result. It contains no authorization policy, routing policy, provider selection, or persistence logic.
 
-`POST /v1/responses` validates a JSON body with Pydantic schemas, maps it to `GenerationRequest`, invokes `CreateResponse`, and serializes `GenerationResponse`. Provider failures map to `502 Bad Gateway`; validation failures map to `422 Unprocessable Entity`. The composition root wires `OpenAIModelProvider` through FastAPI dependencies and stores a shared `httpx.AsyncClient` on the application lifespan.
+`POST /v1/responses` validates a JSON body with Pydantic schemas, maps it to `GenerationRequest`, invokes `CreateResponse`, and serializes `GenerationResponse`. Provider failures map to `502 Bad Gateway`; validation failures map to `422 Unprocessable Entity`. Both use the standardized error envelope defined in `api/schemas/errors.py` and registered through `api/exception_handlers.py`. The composition root wires `OpenAIModelProvider` through FastAPI dependencies and stores a shared `httpx.AsyncClient` on the application lifespan.
 
 ### Application
 
