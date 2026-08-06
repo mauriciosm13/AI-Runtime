@@ -71,6 +71,8 @@ Providers do not decide which model to select, whether an organization is author
 
 Infrastructure contains concrete external integrations: SQLAlchemy repositories, database sessions, Redis clients, HTTP clients, AWS services, migrations, and configuration of external resources.
 
+The first infrastructure package is `infrastructure/db/`. It constructs the async SQLAlchemy engine (`create_db_engine`) and session factory (`create_session_factory`) for PostgreSQL via asyncpg. The API composition root stores these on the application lifespan and exposes request-scoped `AsyncSession` injection through `get_db_session`. Domain models, repositories, and Alembic migrations are introduced with later persistence features.
+
 ### Telemetry
 
 Telemetry provides structured logs, traces, metrics, audit events, and usage/cost signals. It is invoked through explicit interfaces so observability remains consistent and does not leak framework concerns into business rules.

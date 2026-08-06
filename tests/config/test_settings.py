@@ -12,6 +12,7 @@ _SETTINGS_ENV_VARS = (
     "AI_RUNTIME_LOG_LEVEL",
     "AI_RUNTIME_OPENAI_API_KEY",
     "AI_RUNTIME_OPENAI_BASE_URL",
+    "AI_RUNTIME_DATABASE_URL",
 )
 
 
@@ -31,6 +32,7 @@ def test_settings_defaults(monkeypatch: MonkeyPatch) -> None:
     assert settings.log_level == "INFO"
     assert settings.openai_api_key == ""
     assert settings.openai_base_url == "https://api.openai.com/v1"
+    assert settings.database_url == "postgresql+asyncpg://ai_runtime:ai_runtime@localhost:5432/ai_runtime"
 
 
 def test_settings_override_from_environment(monkeypatch: MonkeyPatch) -> None:
@@ -53,9 +55,28 @@ def test_settings_log_level_override_from_environment(monkeypatch: MonkeyPatch) 
     assert settings.log_level == "debug"
 
 
+def test_settings_database_url_override_from_environment(monkeypatch: MonkeyPatch) -> None:
+    """AI_RUNTIME_DATABASE_URL overrides the default database URL."""
+    _clear_settings_env(monkeypatch)
+    monkeypatch.setenv(
+        "AI_RUNTIME_DATABASE_URL",
+        "postgresql+asyncpg://user:pass@db:5432/runtime",
+    )
+    settings = Settings()
+    assert settings.database_url == "postgresql+asyncpg://user:pass@db:5432/runtime"
+
+
 def test_settings_rejects_invalid_environment(monkeypatch: MonkeyPatch) -> None:
     """Invalid AI_RUNTIME_ENVIRONMENT values fail validation."""
     _clear_settings_env(monkeypatch)
     monkeypatch.setenv("AI_RUNTIME_ENVIRONMENT", "invalid")
+    with pytest.raises(ValidationError):
+        Settings()
+
+
+def test_settings_rejects_non_asyncpg_database_url(monkeypatch: MonkeyPatch) -> None:
+    """database_url must use the postgresql+asyncpg scheme."""
+    _clear_settings_env(monkeypatch)
+    monkeypatch.setenv("AI_RUNTIME_DATABASE_URL", "postgresql://ai_runtime:ai_runtime@localhost:5432/ai_runtime")
     with pytest.raises(ValidationError):
         Settings()

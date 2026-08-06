@@ -17,7 +17,7 @@ PostgreSQL stores data that requires durability, relational integrity, transacti
 
 API-key secrets themselves are never stored in plaintext. PostgreSQL stores a key identifier, a non-secret prefix for display, a secure hash, status, timestamps, and organization relationship.
 
-PostgreSQL is the initial operational database. SQLAlchemy and Alembic will be introduced with the first persistence-backed feature; no schema is created during this documentation phase.
+PostgreSQL is the initial operational database. SQLAlchemy 2 async (asyncpg) is wired at the infrastructure boundary for engine and session lifecycle. Alembic migrations and the first schema land with the next persistence-backed feature; no domain tables are created in this phase.
 
 ## Redis: ephemeral coordination
 

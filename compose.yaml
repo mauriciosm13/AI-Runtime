@@ -1,4 +1,22 @@
 services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ai_runtime
+      POSTGRES_PASSWORD: ai_runtime
+      POSTGRES_DB: ai_runtime
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ai_runtime -d ai_runtime"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+
   api:
     build:
       context: .
@@ -10,9 +28,13 @@ services:
       AI_RUNTIME_ENVIRONMENT: development
       AI_RUNTIME_DEBUG: "true"
       AI_RUNTIME_LOG_LEVEL: INFO
+      AI_RUNTIME_DATABASE_URL: postgresql+asyncpg://ai_runtime:ai_runtime@postgres:5432/ai_runtime
     env_file:
       - path: .env
         required: false
+    depends_on:
+      postgres:
+        condition: service_healthy
     healthcheck:
       test:
         [
@@ -26,3 +48,6 @@ services:
       retries: 3
       start_period: 10s
     restart: unless-stopped
+
+volumes:
+  postgres_data:
