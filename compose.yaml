@@ -1,0 +1,28 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ai-runtime:local
+    ports:
+      - "8000:8000"
+    environment:
+      AI_RUNTIME_ENVIRONMENT: development
+      AI_RUNTIME_DEBUG: "true"
+      AI_RUNTIME_LOG_LEVEL: INFO
+    env_file:
+      - path: .env
+        required: false
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped

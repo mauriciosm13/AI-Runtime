@@ -20,3 +20,6 @@ dist/
 .coverage
 coverage.xml
 htmlcov/
+
+# Local environment overrides
+.env

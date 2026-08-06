@@ -59,6 +59,8 @@ src/
     telemetry/         # structured logging configuration
 tests/                 # test suite
 Dockerfile             # multi-stage image for local execution
+compose.yaml           # Docker Compose stack for local development
+.env.example           # environment template for Compose runs
 .dockerignore          # build context exclusions
 ```
 
@@ -179,6 +181,30 @@ curl -i http://127.0.0.1:8000/health
 ```
 
 The expected response is `200 OK` with `{"status":"ok"}`.
+
+## Running with Docker Compose
+
+For a repeatable local stack, use Docker Compose from the repository root:
+
+```bash
+cp .env.example .env
+# Edit .env and set AI_RUNTIME_OPENAI_API_KEY when calling POST /v1/responses.
+
+docker compose up --build
+```
+
+Compose builds the same image as `docker build`, publishes port 8000, loads optional variables from `.env`, and waits for the API health check before reporting the service as healthy.
+
+Useful commands:
+
+```bash
+docker compose up --build -d    # run in the background
+docker compose ps               # service status and health
+docker compose logs -f api      # follow API logs
+docker compose down             # stop and remove containers
+```
+
+While the stack is running, the same endpoints documented above are available at [http://127.0.0.1:8000](http://127.0.0.1:8000).
 
 ## Planned technology stack
 
