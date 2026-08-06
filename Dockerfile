@@ -7,8 +7,9 @@ WORKDIR /build
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-COPY pyproject.toml README.md ./
+COPY pyproject.toml README.md alembic.ini ./
 COPY src/ src/
+COPY alembic/ alembic/
 
 RUN pip install --upgrade pip \
     && pip install --no-cache-dir .
@@ -19,6 +20,8 @@ RUN groupadd --gid 10001 appuser \
     && useradd --uid 10001 --gid 10001 --create-home --shell /usr/sbin/nologin appuser
 
 COPY --from=dependencies /opt/venv /opt/venv
+COPY --from=dependencies /build/alembic.ini /home/appuser/alembic.ini
+COPY --from=dependencies /build/alembic /home/appuser/alembic
 
 ENV PATH="/opt/venv/bin:$PATH" \
     PYTHONDONTWRITEBYTECODE=1 \

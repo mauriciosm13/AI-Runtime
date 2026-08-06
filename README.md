@@ -43,7 +43,7 @@ The foundational system-design documents define the product boundary before runt
 
 ## Current status
 
-The project has a minimal FastAPI bootstrap with typed environment configuration and an operational liveness endpoint at `GET /health`. Provider-neutral generation contracts live in `domain/`, `ports/` defines the first external capability interface (`ModelProvider`), and `application/responses/` contains the first use case (`CreateResponse`). The first concrete provider adapter is `OpenAIModelProvider` under `providers/openai/`, which calls OpenAI Chat Completions over `httpx`. `POST /v1/responses` exposes `CreateResponse` through HTTP with Pydantic schemas, dependency injection, and a shared `httpx.AsyncClient` managed by the application lifespan. Client-facing errors use a standardized provider-neutral envelope with stable error codes and a per-request correlation identifier (`X-Request-ID`). Structured JSON request logs record request start and completion with the same identifier. Persistence wiring uses SQLAlchemy 2 async with asyncpg: the application lifespan owns the engine and session factory, and FastAPI can inject request-scoped `AsyncSession` values. Schema migrations, organizations, API keys, and provider routing are not implemented yet.
+The project has a minimal FastAPI bootstrap with typed environment configuration and an operational liveness endpoint at `GET /health`. Provider-neutral generation contracts live in `domain/`, `ports/` defines the first external capability interface (`ModelProvider`), and `application/responses/` contains the first use case (`CreateResponse`). The first concrete provider adapter is `OpenAIModelProvider` under `providers/openai/`, which calls OpenAI Chat Completions over `httpx`. `POST /v1/responses` exposes `CreateResponse` through HTTP with Pydantic schemas, dependency injection, and a shared `httpx.AsyncClient` managed by the application lifespan. Client-facing errors use a standardized provider-neutral envelope with stable error codes and a per-request correlation identifier (`X-Request-ID`). Structured JSON request logs record request start and completion with the same identifier. Persistence wiring uses SQLAlchemy 2 async with asyncpg: the application lifespan owns the engine and session factory, and FastAPI can inject request-scoped `AsyncSession` values. Alembic is configured for async migrations against `Base.metadata`; the first revision is an intentional empty baseline. Organizations, API keys, and provider routing are not implemented yet.
 
 ## Repository layout
 
@@ -55,12 +55,14 @@ src/
     config/            # typed Settings loaded from the environment
     domain/            # provider-neutral generation contracts
     ports/             # interfaces for external capabilities (ModelProvider)
-    infrastructure/    # SQLAlchemy async engine/session helpers
+    infrastructure/    # SQLAlchemy async engine/session helpers and ORM Base
     providers/         # concrete model-provider adapters (OpenAI via httpx)
     telemetry/         # structured logging configuration
+alembic/               # Alembic env and version scripts
+alembic.ini            # Alembic configuration (URL from Settings)
 tests/                 # test suite
-Dockerfile             # multi-stage image for local execution
-compose.yaml           # Docker Compose stack (API + PostgreSQL)
+Dockerfile             # multi-stage image for local execution (includes Alembic)
+compose.yaml           # Docker Compose stack (Postgres + migrate + API)
 .env.example           # environment template for Compose runs
 .dockerignore          # build context exclusions
 ```
@@ -184,9 +186,26 @@ curl -i http://127.0.0.1:8000/health
 
 The expected response is `200 OK` with `{"status":"ok"}`.
 
+## Database migrations
+
+Alembic is configured at the repository root (`alembic.ini` + `alembic/`). The async environment loads `AI_RUNTIME_DATABASE_URL` through the same `Settings` object as the API and targets `ai_runtime.infrastructure.db.base.Base.metadata`.
+
+The first revision (`0001_baseline`) is an intentional empty migration: it creates Alembic's version table and proves wiring before domain DDL arrives. Organizations and API-key tables belong to later roadmap items.
+
+From the repository root (with Postgres reachable at the configured URL):
+
+```bash
+alembic upgrade head          # apply migrations
+alembic downgrade -1          # revert one revision
+alembic current               # show applied revision
+alembic revision --autogenerate -m "describe change"  # draft from Base.metadata
+```
+
+Autogenerate only sees models imported into the metadata graph. Import new ORM modules from `infrastructure` (or `env.py`) when they are added so Alembic can detect them.
+
 ## Running with Docker Compose
 
-For a repeatable local stack (API + PostgreSQL), use Docker Compose from the repository root:
+For a repeatable local stack (PostgreSQL + migrations + API), use Docker Compose from the repository root:
 
 ```bash
 cp .env.example .env
@@ -195,20 +214,21 @@ cp .env.example .env
 docker compose up --build
 ```
 
-Compose starts PostgreSQL 17, waits until it is healthy, then builds and starts the API. The API receives `AI_RUNTIME_DATABASE_URL` pointed at the `postgres` service (`postgresql+asyncpg://...`). Port 8000 (API) and 5432 (Postgres) are published to the host. Optional variables load from `.env`; Compose `environment` values override matching keys from that file.
+Compose starts PostgreSQL 17, waits until it is healthy, runs `alembic upgrade head` via the one-shot `migrate` service, then starts the API. The API and migrate services receive `AI_RUNTIME_DATABASE_URL` pointed at the `postgres` hostname. Port 8000 (API) and 5432 (Postgres) are published to the host. Optional variables load from `.env`; Compose `environment` values override matching keys from that file.
 
 Useful commands:
 
 ```bash
-docker compose up --build -d    # run in the background
-docker compose ps               # service status and health
-docker compose logs -f api      # follow API logs
-docker compose down             # stop and remove containers
+docker compose up --build -d              # run in the background
+docker compose ps                         # service status and health
+docker compose logs -f api                # follow API logs
+docker compose run --rm migrate           # re-run migrations only
+docker compose down                       # stop and remove containers
 ```
 
-While the stack is running, the same endpoints documented above are available at [http://127.0.0.1:8000](http://127.0.0.1:8000). To run Uvicorn on the host against Compose Postgres, keep the default localhost database URL from `.env.example`.
+While the stack is running, the same endpoints documented above are available at [http://127.0.0.1:8000](http://127.0.0.1:8000). To run Uvicorn or Alembic on the host against Compose Postgres, keep the default localhost database URL from `.env.example`.
 
-Persistence note: the engine and session factory are wired, but Alembic migrations and domain tables are not introduced yet. `GET /health` does not require a live database connection.
+`GET /health` does not require a live database connection; it remains a liveness probe.
 
 ## Planned technology stack
 

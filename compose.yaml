@@ -17,6 +17,22 @@ services:
       start_period: 5s
     restart: unless-stopped
 
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ai-runtime:local
+    environment:
+      AI_RUNTIME_DATABASE_URL: postgresql+asyncpg://ai_runtime:ai_runtime@postgres:5432/ai_runtime
+    env_file:
+      - path: .env
+        required: false
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+
   api:
     build:
       context: .
@@ -35,6 +51,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     healthcheck:
       test:
         [

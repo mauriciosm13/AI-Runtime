@@ -71,7 +71,9 @@ Providers do not decide which model to select, whether an organization is author
 
 Infrastructure contains concrete external integrations: SQLAlchemy repositories, database sessions, Redis clients, HTTP clients, AWS services, migrations, and configuration of external resources.
 
-The first infrastructure package is `infrastructure/db/`. It constructs the async SQLAlchemy engine (`create_db_engine`) and session factory (`create_session_factory`) for PostgreSQL via asyncpg. The API composition root stores these on the application lifespan and exposes request-scoped `AsyncSession` injection through `get_db_session`. Domain models, repositories, and Alembic migrations are introduced with later persistence features.
+The first infrastructure package is `infrastructure/db/`. It constructs the async SQLAlchemy engine (`create_db_engine`) and session factory (`create_session_factory`) for PostgreSQL via asyncpg, and defines the shared ORM `Base` for declarative models. The API composition root stores the engine and session factory on the application lifespan and exposes request-scoped `AsyncSession` injection through `get_db_session`.
+
+Schema changes are versioned with Alembic (`alembic.ini` and `alembic/` at the repository root). `alembic/env.py` uses async SQLAlchemy and resolves the database URL through `get_alembic_database_url()` / `Settings`. The first revision is an empty baseline against `Base.metadata`; domain tables and repositories arrive with later persistence features.
 
 ### Telemetry
 

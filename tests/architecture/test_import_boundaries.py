@@ -10,6 +10,7 @@ _FORBIDDEN_IN_DOMAIN_AND_APPLICATION = frozenset(
     {
         "sqlalchemy",
         "asyncpg",
+        "alembic",
         "fastapi",
         "httpx",
         "redis",
@@ -34,7 +35,7 @@ def _python_files(package: str) -> list[Path]:
 
 
 def test_domain_and_application_avoid_infrastructure_frameworks() -> None:
-    """domain and application must not import SQLAlchemy, FastAPI, httpx, or Redis."""
+    """domain and application must not import SQLAlchemy, Alembic, FastAPI, httpx, or Redis."""
     violations: list[str] = []
     for package in ("domain", "application"):
         for path in _python_files(package):
