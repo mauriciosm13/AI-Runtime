@@ -43,7 +43,7 @@ The foundational system-design documents define the product boundary before runt
 
 ## Current status
 
-The project has a minimal FastAPI bootstrap with typed environment configuration and an operational liveness endpoint at `GET /health`. Provider-neutral generation contracts live in `domain/`, `ports/` defines external capability interfaces (`ModelProvider`, `OrganizationRepository`), and `application/` contains use cases (`CreateResponse`, `CreateOrganization`, `GetOrganization`). The first concrete provider adapter is `OpenAIModelProvider` under `providers/openai/`, which calls OpenAI Chat Completions over `httpx`. `POST /v1/responses` exposes `CreateResponse` through HTTP with Pydantic schemas, dependency injection, and a shared `httpx.AsyncClient` managed by the application lifespan. Client-facing errors use a standardized provider-neutral envelope with stable error codes and a per-request correlation identifier (`X-Request-ID`). Structured JSON request logs record request start and completion with the same identifier. Persistence wiring uses SQLAlchemy 2 async with asyncpg: the application lifespan owns the engine and session factory, and FastAPI can inject request-scoped `AsyncSession` values. Organization tenancy is modeled in `domain/organization.py`, persisted through `SqlAlchemyOrganizationRepository` and the `organizations` table (Alembic revision `0002_organizations`). Operator HTTP routes for organizations, API keys, authentication, and provider routing are not implemented yet.
+The project has a minimal FastAPI bootstrap with typed environment configuration and an operational liveness endpoint at `GET /health`. Provider-neutral generation contracts live in `domain/`, `ports/` defines external capability interfaces (`ModelProvider`, `OrganizationRepository`, `ApiKeyRepository`, `ApiKeyHasher`), and `application/` contains use cases (`CreateResponse`, `CreateOrganization`, `GetOrganization`, `CreateApiKey`, `RevokeApiKey`, `ListApiKeysForOrganization`). The first concrete provider adapter is `OpenAIModelProvider` under `providers/openai/`, which calls OpenAI Chat Completions over `httpx`. `POST /v1/responses` exposes `CreateResponse` through HTTP with Pydantic schemas, dependency injection, and a shared `httpx.AsyncClient` managed by the application lifespan. Client-facing errors use a standardized provider-neutral envelope with stable error codes and a per-request correlation identifier (`X-Request-ID`). Structured JSON request logs record request start and completion with the same identifier. Persistence wiring uses SQLAlchemy 2 async with asyncpg: the application lifespan owns the engine and session factory, and FastAPI can inject request-scoped `AsyncSession` values. Organization tenancy is modeled in `domain/organization.py`, persisted through `SqlAlchemyOrganizationRepository` and the `organizations` table (Alembic revision `0002_organizations`). API keys are modeled in `domain/api_key.py`, hashed at rest with argon2id (`Argon2ApiKeyHasher`), persisted through `SqlAlchemyApiKeyRepository` and the `api_keys` table (Alembic revision `0003_api_keys`). Create returns the plaintext `airt_...` secret once; only prefix + hash are stored. Operator HTTP routes for organizations/API keys, bearer authentication (#14), and provider routing are not implemented yet.
 
 ## Repository layout
 
@@ -51,11 +51,11 @@ The project has a minimal FastAPI bootstrap with typed environment configuration
 src/
   ai_runtime/          # distributable application package
     api/               # FastAPI application factory, routes, schemas, dependencies, middleware
-    application/       # use cases (CreateResponse, CreateOrganization, GetOrganization)
+    application/       # use cases (responses, organizations, api_keys)
     config/            # typed Settings loaded from the environment
-    domain/            # provider-neutral generation and organization contracts
-    ports/             # interfaces for external capabilities (ModelProvider, OrganizationRepository)
-    infrastructure/    # SQLAlchemy engine/session, ORM models, repositories
+    domain/            # provider-neutral generation, organization, and API-key contracts
+    ports/             # interfaces (ModelProvider, OrganizationRepository, ApiKeyRepository, ApiKeyHasher)
+    infrastructure/    # SQLAlchemy engine/session, ORM models, repositories, argon2id hasher
     providers/         # concrete model-provider adapters (OpenAI via httpx)
     telemetry/         # structured logging configuration
 alembic/               # Alembic env and version scripts
@@ -95,9 +95,13 @@ AI Runtime targets Python 3.13. Run all commands from the repository root (the d
 
 ```bash
 python3.13 -m venv .venv
+# macOS + iCloud Documents: clear UF_HIDDEN so Python 3.13 loads editable .pth files
+chflags -R nohidden .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -e ".[dev]"
+# Re-clear after install; iCloud may re-hide new .pth files under .venv
+chflags -R nohidden .venv
 
 pytest
 ruff check .
@@ -119,6 +123,7 @@ The printed path should include `src/ai_runtime/`.
 
 - **`ModuleNotFoundError: No module named 'ai_runtime'`** — activate the virtual environment and run `pip install -e ".[dev]"` from the repository root. Do not set `PYTHONPATH=src`; tests and tooling expect the installed distribution.
 - **Wrong virtual environment** — ensure `.venv` was created in the repository root, not in a parent directory.
+- **Editable install ignored on macOS (iCloud)** — if `Documents` syncs via iCloud, files under `.venv` get the `UF_HIDDEN` flag and Python 3.13 skips the editable `.pth`. Run `chflags -R nohidden .venv`, then confirm with `python -c "import ai_runtime"`. Prefer creating the venv outside iCloud-synced folders when possible.
 
 ## Continuous integration
 
@@ -190,7 +195,7 @@ The expected response is `200 OK` with `{"status":"ok"}`.
 
 Alembic is configured at the repository root (`alembic.ini` + `alembic/`). The async environment loads `AI_RUNTIME_DATABASE_URL` through the same `Settings` object as the API and targets `ai_runtime.infrastructure.db.base.Base.metadata`.
 
-Revision `0001_baseline` is an intentional empty migration that establishes Alembic version tracking. Revision `0002_organizations` creates the `organizations` table (`id`, `name`, unique `slug`, `status`, timestamps). API-key tables belong to later roadmap items.
+Revision `0001_baseline` is an intentional empty migration that establishes Alembic version tracking. Revision `0002_organizations` creates the `organizations` table (`id`, `name`, unique `slug`, `status`, timestamps). Revision `0003_api_keys` creates the `api_keys` table (`id`, `organization_id` FK, optional `name`, indexed `prefix`, argon2id `secret_hash`, `status`, timestamps).
 
 From the repository root (with Postgres reachable at the configured URL):
 

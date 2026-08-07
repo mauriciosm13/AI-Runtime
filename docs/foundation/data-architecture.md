@@ -17,7 +17,7 @@ PostgreSQL stores data that requires durability, relational integrity, transacti
 
 API-key secrets themselves are never stored in plaintext. PostgreSQL stores a key identifier, a non-secret prefix for display, a secure hash, status, timestamps, and organization relationship.
 
-PostgreSQL is the initial operational database. SQLAlchemy 2 async (asyncpg) is wired at the infrastructure boundary for engine and session lifecycle. Alembic migrates against shared ORM metadata: `0001_baseline` establishes version tracking, and `0002_organizations` creates the `organizations` table (`id` UUID PK, `name`, unique `slug`, `status`, `created_at`, `updated_at`). API-key and related access tables land in subsequent migrations.
+PostgreSQL is the initial operational database. SQLAlchemy 2 async (asyncpg) is wired at the infrastructure boundary for engine and session lifecycle. Alembic migrates against shared ORM metadata: `0001_baseline` establishes version tracking; `0002_organizations` creates the `organizations` table (`id` UUID PK, `name`, unique `slug`, `status`, `created_at`, `updated_at`); and `0003_api_keys` creates the `api_keys` table (`id` UUID PK, `organization_id` FK → `organizations.id`, optional `name`, indexed non-secret `prefix`, argon2id `secret_hash`, `status` active|revoked, `created_at`, nullable `revoked_at`, `updated_at`). Plaintext API-key secrets are never persisted; the create use case returns the raw `airt_...` secret once, and only the KDF digest remains at rest.
 
 ## Redis: ephemeral coordination
 

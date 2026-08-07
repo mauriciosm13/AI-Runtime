@@ -32,6 +32,26 @@ def test_health_returns_ok() -> None:
     assert response.json() == {"status": "ok"}
 
 
+def test_health_rejects_non_get_methods() -> None:
+    """POST /health is rejected because liveness is a read-only probe."""
+    client = TestClient(create_app())
+    response = client.post("/health")
+    assert response.status_code == 405
+
+
+def test_health_does_not_require_database_connectivity() -> None:
+    """Liveness succeeds without querying the database, even with an unreachable DSN."""
+    app = create_app(
+        Settings(
+            database_url="postgresql+asyncpg://ai_runtime:ai_runtime@127.0.0.1:1/ai_runtime",
+        )
+    )
+    with TestClient(app) as client:
+        response = client.get("/health")
+        assert response.status_code == 200
+        assert response.json() == {"status": "ok"}
+
+
 def test_health_is_documented_in_openapi() -> None:
     """GET /health appears in the generated OpenAPI schema."""
     schema = create_app().openapi()

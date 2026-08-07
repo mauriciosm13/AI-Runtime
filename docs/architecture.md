@@ -43,7 +43,7 @@ Application code expresses workflows; it does not contain HTTP-specific concerns
 
 `CreateResponse` in `application/responses/` receives a provider-neutral `GenerationRequest`, delegates generation to an injected `ModelProvider`, and returns the resulting `GenerationResponse`. It is exposed through `POST /v1/responses` in the API layer.
 
-`CreateOrganization` and `GetOrganization` in `application/organizations/` create and load tenants through an injected `OrganizationRepository`. They are not yet exposed over HTTP; operator routes arrive with later authentication work.
+`CreateOrganization` and `GetOrganization` in `application/organizations/` create and load tenants through an injected `OrganizationRepository`. `CreateApiKey`, `RevokeApiKey`, and `ListApiKeysForOrganization` in `application/api_keys/` issue, revoke, and list credentials through injected `ApiKeyRepository`, `OrganizationRepository`, and `ApiKeyHasher` ports. They are not yet exposed over HTTP; operator routes and bearer authentication arrive with later authentication work (#14).
 
 ### Domain
 
@@ -51,7 +51,7 @@ The domain layer contains provider-agnostic business concepts and rules: model c
 
 A domain rule belongs here when it would still apply if FastAPI, PostgreSQL, Redis, and every provider were replaced.
 
-Domain contracts under `domain/` include provider-neutral text generation (`MessageRole`, `Message`, `GenerationRequest`, `TokenUsage`, `GenerationResponse`) and organization tenancy (`Organization`, `OrganizationStatus`, slug/name invariants, and organization lifecycle errors). These types do not know about HTTP, SDKs, or SQLAlchemy.
+Domain contracts under `domain/` include provider-neutral text generation (`MessageRole`, `Message`, `GenerationRequest`, `TokenUsage`, `GenerationResponse`), organization tenancy (`Organization`, `OrganizationStatus`, slug/name invariants, and organization lifecycle errors), and API-key credentials (`ApiKey`, `ApiKeyMetadata`, `ApiKeyStatus`, revoke invariants, and key lifecycle errors). These types do not know about HTTP, SDKs, or SQLAlchemy. Plaintext API-key secrets are never part of the persisted domain entity.
 
 ### Ports
 
@@ -62,6 +62,8 @@ Ports prevent use cases from depending on concrete adapters. They should be intr
 `ModelProvider` in `ports/model_provider.py` is an asynchronous `generate` contract that accepts a `GenerationRequest` and returns a `GenerationResponse`. Concrete adapters under `providers/` implement this interface.
 
 `OrganizationRepository` in `ports/organization_repository.py` defines async `add`, `get_by_id`, and `get_by_slug` for organization persistence. `SqlAlchemyOrganizationRepository` under `infrastructure/db/repositories/` implements it.
+
+`ApiKeyRepository` in `ports/api_key_repository.py` defines async `add`, `get_by_id`, `list_by_organization`, `find_by_prefix`, and `save` for credential persistence. `ApiKeyHasher` in `ports/api_key_hasher.py` defines `generate_secret`, `hash_secret`, and `verify_secret` so application code can create and check keys without depending on a crypto library. `SqlAlchemyApiKeyRepository` and `Argon2ApiKeyHasher` (argon2id via `argon2-cffi`) implement these ports under infrastructure.
 
 ### Providers
 
@@ -77,7 +79,7 @@ Infrastructure contains concrete external integrations: SQLAlchemy repositories,
 
 The infrastructure package `infrastructure/db/` constructs the async SQLAlchemy engine (`create_db_engine`) and session factory (`create_session_factory`) for PostgreSQL via asyncpg, defines the shared ORM `Base`, and hosts declarative models under `infrastructure/db/models/` plus repository adapters under `infrastructure/db/repositories/`. The API composition root stores the engine and session factory on the application lifespan and exposes request-scoped `AsyncSession` injection through `get_db_session`.
 
-Schema changes are versioned with Alembic (`alembic.ini` and `alembic/` at the repository root). `alembic/env.py` uses async SQLAlchemy, imports ORM models so they register on `Base.metadata`, and resolves the database URL through `get_alembic_database_url()` / `Settings`. Revision `0001_baseline` is an empty baseline; `0002_organizations` creates the `organizations` table.
+Schema changes are versioned with Alembic (`alembic.ini` and `alembic/` at the repository root). `alembic/env.py` uses async SQLAlchemy, imports ORM models so they register on `Base.metadata`, and resolves the database URL through `get_alembic_database_url()` / `Settings`. Revision `0001_baseline` is an empty baseline; `0002_organizations` creates the `organizations` table; `0003_api_keys` creates the `api_keys` table (organization FK, non-secret `prefix`, argon2id `secret_hash`, status, timestamps).
 
 ### Telemetry
 

@@ -11,12 +11,16 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from ai_runtime.domain.organization import Organization, OrganizationSlugConflictError, OrganizationStatus
 from ai_runtime.infrastructure.db.base import Base
 from ai_runtime.infrastructure.db.engine import create_db_engine, create_session_factory
-from ai_runtime.infrastructure.db.models import OrganizationRow  # noqa: F401 — register metadata
+from ai_runtime.infrastructure.db.models import ApiKeyRow, OrganizationRow
 from ai_runtime.infrastructure.db.repositories.organization_repository import SqlAlchemyOrganizationRepository
 
 _TEST_DATABASE_URL = "postgresql+asyncpg://ai_runtime:ai_runtime@localhost:5432/ai_runtime"
 _SessionFactory = async_sessionmaker[AsyncSession]
 _Scenario = Callable[[_SessionFactory], Awaitable[None]]
+
+# Touch ORM rows so both tables register on Base.metadata for create_all.
+assert ApiKeyRow.__tablename__ == "api_keys"
+assert OrganizationRow.__tablename__ == "organizations"
 
 
 async def _postgres_available() -> bool:
