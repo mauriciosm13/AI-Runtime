@@ -410,6 +410,7 @@ def test_post_responses_replays_idempotent_response() -> None:
             "usage": {"input_tokens": 1, "output_tokens": 1},
         },
         separators=(",", ":"),
+        ensure_ascii=True,
     )
     provider = FakeModelProvider(response=_success_response())
     client = _client_with_provider(
@@ -480,7 +481,16 @@ def test_post_responses_completes_idempotency_on_success() -> None:
     assert response.status_code == 200
     assert len(store.completed) == 1
     assert store.completed[0][1] == "idem-ok"
-    assert '"id":"resp_abc"' in store.completed[0][2]
+    assert store.completed[0][2] == json.dumps(
+        {
+            "id": "resp_abc",
+            "model": "gpt-4o-mini",
+            "output": {"role": "assistant", "content": "Hi"},
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+        },
+        separators=(",", ":"),
+        ensure_ascii=True,
+    )
 
 
 def test_get_responses_is_not_allowed() -> None:

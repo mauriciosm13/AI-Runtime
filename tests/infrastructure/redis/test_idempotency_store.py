@@ -1,6 +1,7 @@
 """Unit tests for RedisIdempotencyStore with an in-memory Redis stand-in."""
 
 import asyncio
+import json
 from uuid import uuid4
 from redis.exceptions import RedisError
 from ai_runtime.infrastructure.redis.idempotency_store import RedisIdempotencyStore
@@ -59,11 +60,12 @@ def test_complete_and_replay() -> None:
     redis = _MemoryRedis()
     store = RedisIdempotencyStore(redis, ttl_seconds=60)  # type: ignore[arg-type]
     org_id = uuid4()
+    payload = json.dumps({"id": "r1"}, separators=(",", ":"), ensure_ascii=True)
     asyncio.run(store.begin(org_id, "k1"))
-    asyncio.run(store.complete(org_id, "k1", '{"id":"r1"}'))
+    asyncio.run(store.complete(org_id, "k1", payload))
     result = asyncio.run(store.begin(org_id, "k1"))
     assert isinstance(result, IdempotencyCompleted)
-    assert result.payload == '{"id":"r1"}'
+    assert result.payload == payload
 
 
 def test_release_removes_in_progress_lease() -> None:

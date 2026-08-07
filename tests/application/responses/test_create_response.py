@@ -249,6 +249,7 @@ def test_create_response_replays_completed_idempotency_payload() -> None:
             "usage": {"input_tokens": 3, "output_tokens": 2},
         },
         separators=(",", ":"),
+        ensure_ascii=True,
     )
     store = FakeIdempotencyStore(IdempotencyCompleted(payload=payload))
     provider = FakeModelProvider(response=_response())
@@ -288,7 +289,16 @@ def test_create_response_completes_idempotency_after_success() -> None:
     org_id, key, payload = store.completed[0]
     assert org_id == command.organization_id
     assert key == "key-1"
-    assert '"id":"response-1"' in payload
+    assert payload == json.dumps(
+        {
+            "id": "response-1",
+            "model": "fake-model",
+            "output": {"role": "assistant", "content": "Hi"},
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+        },
+        separators=(",", ":"),
+        ensure_ascii=True,
+    )
     assert store.released == []
 
 

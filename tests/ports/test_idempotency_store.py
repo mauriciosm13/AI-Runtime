@@ -1,6 +1,7 @@
 """Unit tests for the IdempotencyStore port contract."""
 
 import asyncio
+import json
 from uuid import UUID, uuid4
 from ai_runtime.ports.idempotency_store import IdempotencyBeginResult, IdempotencyMiss, IdempotencyStore
 
@@ -25,5 +26,5 @@ def test_fake_idempotency_store_satisfies_contract() -> None:
     assert isinstance(store, IdempotencyStore)
     result = asyncio.run(store.begin(uuid4(), "key-1"))
     assert isinstance(result, IdempotencyMiss)
-    asyncio.run(store.complete(uuid4(), "key-1", "{}"))
+    asyncio.run(store.complete(uuid4(), "key-1", json.dumps({}, separators=(",", ":"), ensure_ascii=True)))
     asyncio.run(store.release(uuid4(), "key-1"))
