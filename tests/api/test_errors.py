@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter
 from fastapi.testclient import TestClient
-from httpx import Response
+from httpx2 import Response
 from ai_runtime.api.app import create_app
 from ai_runtime.api.errors import APIError, ErrorCode
 from ai_runtime.api.middleware.request_context import REQUEST_ID_HEADER
