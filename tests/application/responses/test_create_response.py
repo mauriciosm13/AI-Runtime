@@ -241,8 +241,7 @@ def test_create_response_replays_completed_idempotency_payload() -> None:
     """Completed idempotency records return the cached response without provider calls."""
     cached = _response(usage=TokenUsage(input_tokens=3, output_tokens=2))
     payload = (
-        '{"id":"response-1","model":"fake-model","output":{"role":"assistant","content":"Hi"},'
-        '"usage":{"input_tokens":3,"output_tokens":2}}'
+        '{"id":"response-1","model":"fake-model","output":{"role":"assistant","content":"Hi"},"usage":{"input_tokens":3,"output_tokens":2}}'
     )
     store = FakeIdempotencyStore(IdempotencyCompleted(payload=payload))
     provider = FakeModelProvider(response=_response())
