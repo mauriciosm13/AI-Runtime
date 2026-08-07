@@ -17,6 +17,20 @@ jobs:
   quality:
     name: Quality checks
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: ai_runtime
+          POSTGRES_PASSWORD: ai_runtime
+          POSTGRES_DB: ai_runtime
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ai_runtime -d ai_runtime"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
@@ -37,6 +51,8 @@ jobs:
         run: python -c "import ai_runtime; from pathlib import Path; assert 'src' in Path(ai_runtime.__file__).parts"
 
       - name: Run pytest
+        env:
+          AI_RUNTIME_DATABASE_URL: postgresql+asyncpg://ai_runtime:ai_runtime@localhost:5432/ai_runtime
         run: pytest
 
       - name: Run Ruff lint

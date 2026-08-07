@@ -6,6 +6,6 @@ from sqlalchemy.orm import DeclarativeBase
 class Base(DeclarativeBase):
     """Shared metadata root for infrastructure ORM models.
 
-    Business tables are added in later persistence features. Alembic autogenerate
-    and migrations target ``Base.metadata``.
+    Alembic autogenerate and migrations target ``Base.metadata``. Import ORM
+    modules (via ``infrastructure.db.models``) so tables register on this base.
     """

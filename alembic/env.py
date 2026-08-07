@@ -6,6 +6,7 @@ from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
+import ai_runtime.infrastructure.db.models
 from ai_runtime.infrastructure.db.base import Base
 from ai_runtime.infrastructure.db.migration_settings import get_alembic_database_url
 

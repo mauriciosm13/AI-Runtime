@@ -41,7 +41,9 @@ The application layer implements use cases. It coordinates domain policies with 
 
 Application code expresses workflows; it does not contain HTTP-specific concerns or direct SQLAlchemy, Redis, AWS, or provider-SDK calls.
 
-The first use case is `CreateResponse` in `application/responses/`. It receives a provider-neutral `GenerationRequest`, delegates generation to an injected `ModelProvider`, and returns the resulting `GenerationResponse`. It is exposed through `POST /v1/responses` in the API layer.
+`CreateResponse` in `application/responses/` receives a provider-neutral `GenerationRequest`, delegates generation to an injected `ModelProvider`, and returns the resulting `GenerationResponse`. It is exposed through `POST /v1/responses` in the API layer.
+
+`CreateOrganization` and `GetOrganization` in `application/organizations/` create and load tenants through an injected `OrganizationRepository`. They are not yet exposed over HTTP; operator routes arrive with later authentication work.
 
 ### Domain
 
@@ -49,7 +51,7 @@ The domain layer contains provider-agnostic business concepts and rules: model c
 
 A domain rule belongs here when it would still apply if FastAPI, PostgreSQL, Redis, and every provider were replaced.
 
-The first concrete domain contracts live under `domain/` and describe provider-neutral text generation: `MessageRole`, `Message`, `GenerationRequest`, `TokenUsage`, and `GenerationResponse`. These types carry only generation invariants; they do not know about HTTP, SDKs, or routing.
+Domain contracts under `domain/` include provider-neutral text generation (`MessageRole`, `Message`, `GenerationRequest`, `TokenUsage`, `GenerationResponse`) and organization tenancy (`Organization`, `OrganizationStatus`, slug/name invariants, and organization lifecycle errors). These types do not know about HTTP, SDKs, or SQLAlchemy.
 
 ### Ports
 
@@ -57,7 +59,9 @@ Ports are stable interfaces required by application use cases. They describe cap
 
 Ports prevent use cases from depending on concrete adapters. They should be introduced only where a real external boundary or test seam exists.
 
-The first port is `ModelProvider` in `ports/model_provider.py`: an asynchronous `generate` contract that accepts a `GenerationRequest` and returns a `GenerationResponse`. Concrete adapters under `providers/` implement this interface.
+`ModelProvider` in `ports/model_provider.py` is an asynchronous `generate` contract that accepts a `GenerationRequest` and returns a `GenerationResponse`. Concrete adapters under `providers/` implement this interface.
+
+`OrganizationRepository` in `ports/organization_repository.py` defines async `add`, `get_by_id`, and `get_by_slug` for organization persistence. `SqlAlchemyOrganizationRepository` under `infrastructure/db/repositories/` implements it.
 
 ### Providers
 
@@ -71,9 +75,9 @@ Providers do not decide which model to select, whether an organization is author
 
 Infrastructure contains concrete external integrations: SQLAlchemy repositories, database sessions, Redis clients, HTTP clients, AWS services, migrations, and configuration of external resources.
 
-The first infrastructure package is `infrastructure/db/`. It constructs the async SQLAlchemy engine (`create_db_engine`) and session factory (`create_session_factory`) for PostgreSQL via asyncpg, and defines the shared ORM `Base` for declarative models. The API composition root stores the engine and session factory on the application lifespan and exposes request-scoped `AsyncSession` injection through `get_db_session`.
+The infrastructure package `infrastructure/db/` constructs the async SQLAlchemy engine (`create_db_engine`) and session factory (`create_session_factory`) for PostgreSQL via asyncpg, defines the shared ORM `Base`, and hosts declarative models under `infrastructure/db/models/` plus repository adapters under `infrastructure/db/repositories/`. The API composition root stores the engine and session factory on the application lifespan and exposes request-scoped `AsyncSession` injection through `get_db_session`.
 
-Schema changes are versioned with Alembic (`alembic.ini` and `alembic/` at the repository root). `alembic/env.py` uses async SQLAlchemy and resolves the database URL through `get_alembic_database_url()` / `Settings`. The first revision is an empty baseline against `Base.metadata`; domain tables and repositories arrive with later persistence features.
+Schema changes are versioned with Alembic (`alembic.ini` and `alembic/` at the repository root). `alembic/env.py` uses async SQLAlchemy, imports ORM models so they register on `Base.metadata`, and resolves the database URL through `get_alembic_database_url()` / `Settings`. Revision `0001_baseline` is an empty baseline; `0002_organizations` creates the `organizations` table.
 
 ### Telemetry
 

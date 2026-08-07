@@ -17,7 +17,7 @@ PostgreSQL stores data that requires durability, relational integrity, transacti
 
 API-key secrets themselves are never stored in plaintext. PostgreSQL stores a key identifier, a non-secret prefix for display, a secure hash, status, timestamps, and organization relationship.
 
-PostgreSQL is the initial operational database. SQLAlchemy 2 async (asyncpg) is wired at the infrastructure boundary for engine and session lifecycle. Alembic is configured for async migrations against shared ORM metadata; the first revision is an empty baseline that only establishes version tracking. Domain tables (organizations, API keys, and related entities) land in subsequent migrations.
+PostgreSQL is the initial operational database. SQLAlchemy 2 async (asyncpg) is wired at the infrastructure boundary for engine and session lifecycle. Alembic migrates against shared ORM metadata: `0001_baseline` establishes version tracking, and `0002_organizations` creates the `organizations` table (`id` UUID PK, `name`, unique `slug`, `status`, `created_at`, `updated_at`). API-key and related access tables land in subsequent migrations.
 
 ## Redis: ephemeral coordination
 

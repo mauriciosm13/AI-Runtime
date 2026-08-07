@@ -43,7 +43,7 @@ The foundational system-design documents define the product boundary before runt
 
 ## Current status
 
-The project has a minimal FastAPI bootstrap with typed environment configuration and an operational liveness endpoint at `GET /health`. Provider-neutral generation contracts live in `domain/`, `ports/` defines the first external capability interface (`ModelProvider`), and `application/responses/` contains the first use case (`CreateResponse`). The first concrete provider adapter is `OpenAIModelProvider` under `providers/openai/`, which calls OpenAI Chat Completions over `httpx`. `POST /v1/responses` exposes `CreateResponse` through HTTP with Pydantic schemas, dependency injection, and a shared `httpx.AsyncClient` managed by the application lifespan. Client-facing errors use a standardized provider-neutral envelope with stable error codes and a per-request correlation identifier (`X-Request-ID`). Structured JSON request logs record request start and completion with the same identifier. Persistence wiring uses SQLAlchemy 2 async with asyncpg: the application lifespan owns the engine and session factory, and FastAPI can inject request-scoped `AsyncSession` values. Alembic is configured for async migrations against `Base.metadata`; the first revision is an intentional empty baseline. Organizations, API keys, and provider routing are not implemented yet.
+The project has a minimal FastAPI bootstrap with typed environment configuration and an operational liveness endpoint at `GET /health`. Provider-neutral generation contracts live in `domain/`, `ports/` defines external capability interfaces (`ModelProvider`, `OrganizationRepository`), and `application/` contains use cases (`CreateResponse`, `CreateOrganization`, `GetOrganization`). The first concrete provider adapter is `OpenAIModelProvider` under `providers/openai/`, which calls OpenAI Chat Completions over `httpx`. `POST /v1/responses` exposes `CreateResponse` through HTTP with Pydantic schemas, dependency injection, and a shared `httpx.AsyncClient` managed by the application lifespan. Client-facing errors use a standardized provider-neutral envelope with stable error codes and a per-request correlation identifier (`X-Request-ID`). Structured JSON request logs record request start and completion with the same identifier. Persistence wiring uses SQLAlchemy 2 async with asyncpg: the application lifespan owns the engine and session factory, and FastAPI can inject request-scoped `AsyncSession` values. Organization tenancy is modeled in `domain/organization.py`, persisted through `SqlAlchemyOrganizationRepository` and the `organizations` table (Alembic revision `0002_organizations`). Operator HTTP routes for organizations, API keys, authentication, and provider routing are not implemented yet.
 
 ## Repository layout
 
@@ -51,11 +51,11 @@ The project has a minimal FastAPI bootstrap with typed environment configuration
 src/
   ai_runtime/          # distributable application package
     api/               # FastAPI application factory, routes, schemas, dependencies, middleware
-    application/       # use cases (CreateResponse)
+    application/       # use cases (CreateResponse, CreateOrganization, GetOrganization)
     config/            # typed Settings loaded from the environment
-    domain/            # provider-neutral generation contracts
-    ports/             # interfaces for external capabilities (ModelProvider)
-    infrastructure/    # SQLAlchemy async engine/session helpers and ORM Base
+    domain/            # provider-neutral generation and organization contracts
+    ports/             # interfaces for external capabilities (ModelProvider, OrganizationRepository)
+    infrastructure/    # SQLAlchemy engine/session, ORM models, repositories
     providers/         # concrete model-provider adapters (OpenAI via httpx)
     telemetry/         # structured logging configuration
 alembic/               # Alembic env and version scripts
@@ -190,7 +190,7 @@ The expected response is `200 OK` with `{"status":"ok"}`.
 
 Alembic is configured at the repository root (`alembic.ini` + `alembic/`). The async environment loads `AI_RUNTIME_DATABASE_URL` through the same `Settings` object as the API and targets `ai_runtime.infrastructure.db.base.Base.metadata`.
 
-The first revision (`0001_baseline`) is an intentional empty migration: it creates Alembic's version table and proves wiring before domain DDL arrives. Organizations and API-key tables belong to later roadmap items.
+Revision `0001_baseline` is an intentional empty migration that establishes Alembic version tracking. Revision `0002_organizations` creates the `organizations` table (`id`, `name`, unique `slug`, `status`, timestamps). API-key tables belong to later roadmap items.
 
 From the repository root (with Postgres reachable at the configured URL):
 

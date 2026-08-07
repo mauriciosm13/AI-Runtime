@@ -19,14 +19,17 @@ def test_alembic_ini_script_location() -> None:
     assert parser.get("alembic", "script_location") == "alembic"
 
 
-def test_baseline_revision_is_head() -> None:
-    """The empty baseline revision is the current Alembic head."""
+def test_organizations_revision_is_head() -> None:
+    """The organizations revision is the current Alembic head after baseline."""
     config = Config(str(_REPO_ROOT / "alembic.ini"))
     script = ScriptDirectory.from_config(config)
-    assert script.get_heads() == ["0001_baseline"]
-    revision = script.get_revision("0001_baseline")
-    assert revision is not None
-    assert revision.down_revision is None
+    assert script.get_heads() == ["0002_organizations"]
+    baseline = script.get_revision("0001_baseline")
+    assert baseline is not None
+    assert baseline.down_revision is None
+    organizations = script.get_revision("0002_organizations")
+    assert organizations is not None
+    assert organizations.down_revision == "0001_baseline"
 
 
 def test_get_alembic_database_url_uses_settings(monkeypatch: MonkeyPatch) -> None:
