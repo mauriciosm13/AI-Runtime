@@ -6,16 +6,19 @@ from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
-import ai_runtime.infrastructure.db.models
 from ai_runtime.infrastructure.db.base import Base
 from ai_runtime.infrastructure.db.migration_settings import get_alembic_database_url
+from ai_runtime.infrastructure.db.models import OrganizationRow
 
 config = context.config
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
+# Importing OrganizationRow registers its table on Base.metadata for autogenerate.
 target_metadata = Base.metadata
+if OrganizationRow.__tablename__ not in target_metadata.tables:
+    raise RuntimeError("organizations ORM model is not registered on Base.metadata")
 
 
 def run_migrations_offline() -> None:
