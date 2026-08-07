@@ -25,12 +25,19 @@ Redis stores data whose value is derived, short-lived, or requires low-latency a
 
 | Use case | Example | Retention |
 | --- | --- | --- |
-| Rate limiting | token bucket per organization or API key | Short TTL |
+| Rate limiting | token bucket per organization (`rl:org:{organization_id}`) | Short TTL derived from refill rate |
 | Response cache | eligible deterministic response | Explicit TTL and invalidation policy |
-| Idempotency | result or status for a caller-provided idempotency key | Bounded TTL |
+| Idempotency | result or status for a caller-provided idempotency key (`idem:{organization_id}:{key}`) | Bounded TTL (`AI_RUNTIME_IDEMPOTENCY_TTL_SECONDS`) |
 | Distributed coordination | short lease for controlled background work | Short TTL |
 
-Redis is not the source of truth for organizations, credentials, accounting, or durable job state. A Redis outage may reduce performance or temporarily disable a dependent feature, but it must not silently lose durable data.
+The local Compose stack runs Redis 7 alongside PostgreSQL. The API process opens a shared `redis.asyncio` client from `AI_RUNTIME_REDIS_URL` during lifespan startup.
+
+Implemented coordination adapters:
+
+- `RedisRateLimiter` — Lua token bucket using `rate_limit_requests_per_minute` and `rate_limit_burst`.
+- `RedisIdempotencyStore` — `SET NX` in-progress lease, completed JSON payload replay, release on failed attempts.
+
+Redis is not the source of truth for organizations, credentials, accounting, or durable job state. A Redis outage may reduce performance or temporarily disable a dependent feature (rate limiting and idempotency fail open), but it must not silently lose durable data.
 
 ## Deferred data stores
 

@@ -16,7 +16,7 @@ from ai_runtime.domain.generation import GenerationRequest
 from ai_runtime.domain.organization import Organization, OrganizationStatus
 from ai_runtime.infrastructure.security.api_key_crypto import Argon2ApiKeyHasher
 from tests.api.test_responses import FakeModelProvider, _request_body, _success_response
-from tests.application.responses.test_create_response import FakeCostEstimator, FakeUsageRepository
+from tests.application.responses.test_create_response import FakeCostEstimator, FakeIdempotencyStore, FakeRateLimiter, FakeUsageRepository
 
 _UNAUTHORIZED_MESSAGE = "Invalid or missing API key."
 _FORBIDDEN_MESSAGE = "Organization is suspended."
@@ -118,7 +118,14 @@ def _client(provider: FakeModelProvider, authenticate: AuthenticateApiKey) -> Te
     app = create_app()
 
     async def override_create_response() -> CreateResponse:
-        return CreateResponse(provider, FakeUsageRepository(), FakeCostEstimator(), provider_name="openai")
+        return CreateResponse(
+            provider,
+            FakeUsageRepository(),
+            FakeCostEstimator(),
+            FakeRateLimiter(),
+            FakeIdempotencyStore(),
+            provider_name="openai",
+        )
 
     async def override_authenticate() -> AuthenticateApiKey:
         return authenticate

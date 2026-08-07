@@ -7,10 +7,19 @@ from ai_runtime.api.errors import APIError, ErrorCode
 from ai_runtime.api.middleware.request_context import REQUEST_ID_HEADER, get_request_id
 from ai_runtime.api.schemas.errors import ErrorDetailSchema, ErrorResponseSchema
 from ai_runtime.domain.generation import DomainValidationError
+from ai_runtime.domain.idempotency import IdempotencyConflictError
+from ai_runtime.domain.rate_limit import RateLimitExceededError
 from ai_runtime.providers.openai.errors import ProviderError
 
 
-def _error_response(*, status_code: int, code: ErrorCode, message: str, request_id: str | None = None) -> JSONResponse:
+def _error_response(
+    *,
+    status_code: int,
+    code: ErrorCode,
+    message: str,
+    request_id: str | None = None,
+    headers: dict[str, str] | None = None,
+) -> JSONResponse:
     """Build a JSON response using the standard error envelope."""
     payload = ErrorResponseSchema(
         error=ErrorDetailSchema(code=code, message=message, request_id=request_id),
@@ -18,6 +27,9 @@ def _error_response(*, status_code: int, code: ErrorCode, message: str, request_
     response = JSONResponse(status_code=status_code, content=payload.model_dump(exclude_none=True))
     if request_id is not None:
         response.headers[REQUEST_ID_HEADER] = request_id
+    if headers:
+        for name, value in headers.items():
+            response.headers[name] = value
     return response
 
 
@@ -41,6 +53,7 @@ async def api_error_handler(request: Request, err: Exception) -> JSONResponse:
         code=err.code,
         message=err.message,
         request_id=get_request_id(request),
+        headers=err.headers,
     )
 
 
@@ -61,6 +74,29 @@ async def domain_validation_error_handler(request: Request, err: Exception) -> J
     return _error_response(
         status_code=422,
         code=ErrorCode.INVALID_REQUEST,
+        message=str(err),
+        request_id=get_request_id(request),
+    )
+
+
+async def rate_limit_exceeded_handler(request: Request, err: Exception) -> JSONResponse:
+    """Normalize organization rate-limit denials to HTTP 429."""
+    assert isinstance(err, RateLimitExceededError)
+    return _error_response(
+        status_code=429,
+        code=ErrorCode.RATE_LIMITED,
+        message=str(err),
+        request_id=get_request_id(request),
+        headers={"Retry-After": str(err.retry_after_seconds)},
+    )
+
+
+async def idempotency_conflict_handler(request: Request, err: Exception) -> JSONResponse:
+    """Normalize in-flight idempotency conflicts to HTTP 409."""
+    assert isinstance(err, IdempotencyConflictError)
+    return _error_response(
+        status_code=409,
+        code=ErrorCode.CONFLICT,
         message=str(err),
         request_id=get_request_id(request),
     )
@@ -92,5 +128,7 @@ def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(APIError, api_error_handler)
     app.add_exception_handler(RequestValidationError, validation_error_handler)
     app.add_exception_handler(DomainValidationError, domain_validation_error_handler)
+    app.add_exception_handler(RateLimitExceededError, rate_limit_exceeded_handler)
+    app.add_exception_handler(IdempotencyConflictError, idempotency_conflict_handler)
     app.add_exception_handler(ProviderError, provider_error_handler)
     app.add_exception_handler(Exception, unhandled_error_handler)

@@ -17,6 +17,18 @@ services:
       start_period: 5s
     restart: unless-stopped
 
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+
   migrate:
     build:
       context: .
@@ -45,11 +57,14 @@ services:
       AI_RUNTIME_DEBUG: "true"
       AI_RUNTIME_LOG_LEVEL: INFO
       AI_RUNTIME_DATABASE_URL: postgresql+asyncpg://ai_runtime:ai_runtime@postgres:5432/ai_runtime
+      AI_RUNTIME_REDIS_URL: redis://redis:6379/0
     env_file:
       - path: .env
         required: false
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully

@@ -14,8 +14,10 @@ from ai_runtime.api.middleware.request_context import REQUEST_ID_HEADER
 from ai_runtime.application.auth.authenticate_api_key import AuthenticatedPrincipal
 from ai_runtime.application.responses.create_response import CreateResponse
 from ai_runtime.domain.generation import GenerationRequest, GenerationResponse, Message, MessageRole, TokenUsage
+from ai_runtime.ports.idempotency_store import IdempotencyCompleted, IdempotencyInProgress, IdempotencyMiss
+from ai_runtime.ports.rate_limiter import RateLimitDecision
 from ai_runtime.providers.openai.errors import ProviderError
-from tests.application.responses.test_create_response import FakeCostEstimator, FakeUsageRepository
+from tests.application.responses.test_create_response import FakeCostEstimator, FakeIdempotencyStore, FakeRateLimiter, FakeUsageRepository
 
 
 class FakeModelProvider:
@@ -65,13 +67,24 @@ def _client_with_provider(
     provider: FakeModelProvider,
     *,
     usage_records: FakeUsageRepository | None = None,
+    rate_limiter: FakeRateLimiter | None = None,
+    idempotency_store: FakeIdempotencyStore | None = None,
 ) -> TestClient:
     """Test client with provider + auth bypassed (generation contract focus)."""
     app = create_app()
     records = usage_records or FakeUsageRepository()
+    limiter = rate_limiter or FakeRateLimiter()
+    store = idempotency_store or FakeIdempotencyStore()
 
     async def override_create_response() -> CreateResponse:
-        return CreateResponse(provider, records, FakeCostEstimator(), provider_name="openai")
+        return CreateResponse(
+            provider,
+            records,
+            FakeCostEstimator(),
+            limiter,
+            store,
+            provider_name="openai",
+        )
 
     async def override_principal() -> AuthenticatedPrincipal:
         return _fake_principal()
@@ -110,7 +123,14 @@ def test_post_responses_records_usage_with_request_id() -> None:
     app = create_app()
 
     async def override_create_response() -> CreateResponse:
-        return CreateResponse(provider, records, FakeCostEstimator(), provider_name="openai")
+        return CreateResponse(
+            provider,
+            records,
+            FakeCostEstimator(),
+            FakeRateLimiter(),
+            FakeIdempotencyStore(),
+            provider_name="openai",
+        )
 
     async def override_principal() -> AuthenticatedPrincipal:
         return principal
@@ -356,6 +376,105 @@ def test_post_responses_returns_502_for_provider_failure() -> None:
             "request_id": request_id,
         },
     }
+
+
+def test_post_responses_returns_429_when_rate_limited() -> None:
+    """Rate-limit denials map to 429 with Retry-After and rate_limited code."""
+    provider = FakeModelProvider(response=_success_response())
+    client = _client_with_provider(
+        provider,
+        rate_limiter=FakeRateLimiter(RateLimitDecision(allowed=False, retry_after_seconds=12)),
+    )
+    response = client.post("/v1/responses", json=_request_body())
+    assert response.status_code == 429
+    assert response.headers["Retry-After"] == "12"
+    request_id = response.headers[REQUEST_ID_HEADER]
+    assert response.json() == {
+        "error": {
+            "code": "rate_limited",
+            "message": "Rate limit exceeded.",
+            "request_id": request_id,
+        },
+    }
+    assert provider.requests == []
+
+
+def test_post_responses_replays_idempotent_response() -> None:
+    """A completed Idempotency-Key returns the cached body without calling the provider."""
+    payload = (
+        '{"id":"resp_cached","model":"gpt-4o-mini","output":{"role":"assistant","content":"Cached"},'
+        '"usage":{"input_tokens":1,"output_tokens":1}}'
+    )
+    provider = FakeModelProvider(response=_success_response())
+    client = _client_with_provider(
+        provider,
+        idempotency_store=FakeIdempotencyStore(IdempotencyCompleted(payload=payload)),
+    )
+    response = client.post(
+        "/v1/responses",
+        json=_request_body(),
+        headers={"Idempotency-Key": "idem-1"},
+    )
+    assert response.status_code == 200
+    assert response.json() == {
+        "id": "resp_cached",
+        "model": "gpt-4o-mini",
+        "output": {"role": "assistant", "content": "Cached"},
+        "usage": {"input_tokens": 1, "output_tokens": 1, "total_tokens": 2},
+    }
+    assert provider.requests == []
+
+
+def test_post_responses_returns_409_for_in_progress_idempotency_key() -> None:
+    """In-progress Idempotency-Key conflicts map to 409 conflict."""
+    provider = FakeModelProvider(response=_success_response())
+    client = _client_with_provider(
+        provider,
+        idempotency_store=FakeIdempotencyStore(IdempotencyInProgress()),
+    )
+    response = client.post(
+        "/v1/responses",
+        json=_request_body(),
+        headers={"Idempotency-Key": "idem-1"},
+    )
+    assert response.status_code == 409
+    request_id = response.headers[REQUEST_ID_HEADER]
+    assert response.json() == {
+        "error": {
+            "code": "conflict",
+            "message": "A request with this Idempotency-Key is already in progress.",
+            "request_id": request_id,
+        },
+    }
+    assert provider.requests == []
+
+
+def test_post_responses_rejects_blank_idempotency_key() -> None:
+    """Blank Idempotency-Key values are rejected as invalid_request."""
+    client = _client_with_provider(FakeModelProvider(response=_success_response()))
+    response = client.post(
+        "/v1/responses",
+        json=_request_body(),
+        headers={"Idempotency-Key": "   "},
+    )
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "invalid_request"
+
+
+def test_post_responses_completes_idempotency_on_success() -> None:
+    """Successful requests with Idempotency-Key persist a completed payload."""
+    store: FakeIdempotencyStore = FakeIdempotencyStore(IdempotencyMiss())
+    provider = FakeModelProvider(response=_success_response())
+    client = _client_with_provider(provider, idempotency_store=store)
+    response = client.post(
+        "/v1/responses",
+        json=_request_body(),
+        headers={"Idempotency-Key": "idem-ok"},
+    )
+    assert response.status_code == 200
+    assert len(store.completed) == 1
+    assert store.completed[0][1] == "idem-ok"
+    assert '"id":"resp_abc"' in store.completed[0][2]
 
 
 def test_get_responses_is_not_allowed() -> None:

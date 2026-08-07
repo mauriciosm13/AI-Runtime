@@ -79,6 +79,8 @@ Infrastructure contains concrete external integrations: SQLAlchemy repositories,
 
 The infrastructure package `infrastructure/db/` constructs the async SQLAlchemy engine (`create_db_engine`) and session factory (`create_session_factory`) for PostgreSQL via asyncpg, defines the shared ORM `Base`, and hosts declarative models under `infrastructure/db/models/` plus repository adapters under `infrastructure/db/repositories/`. The API composition root stores the engine and session factory on the application lifespan and exposes request-scoped `AsyncSession` injection through `get_db_session`.
 
+The infrastructure package `infrastructure/redis/` constructs the shared async Redis client (`create_redis_client`) and adapters for organization token-bucket rate limiting (`RedisRateLimiter`) and Idempotency-Key coordination (`RedisIdempotencyStore`). The API lifespan stores the Redis client on `app.state.redis`. Rate limiting and idempotency fail open when Redis is unavailable.
+
 Schema changes are versioned with Alembic (`alembic.ini` and `alembic/` at the repository root). `alembic/env.py` uses async SQLAlchemy, imports ORM models so they register on `Base.metadata`, and resolves the database URL through `get_alembic_database_url()` / `Settings`. Revision `0001_baseline` is an empty baseline; `0002_organizations` creates the `organizations` table; `0003_api_keys` creates the `api_keys` table (organization FK, non-secret `prefix`, argon2id `secret_hash`, status, timestamps); `0004_usage_records` creates the `usage_records` table (unique `request_id`, organization/API-key FKs, provider/model, nullable token counts and estimated USD cost).
 
 ### Telemetry

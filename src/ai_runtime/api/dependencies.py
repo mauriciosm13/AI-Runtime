@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from typing import Annotated
 import httpx
 from fastapi import Depends, FastAPI, Request
+from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from ai_runtime.api.errors import APIError, ErrorCode
 from ai_runtime.api.middleware.request_context import get_request_id
@@ -18,6 +19,7 @@ from ai_runtime.infrastructure.db.repositories.api_key_repository import SqlAlch
 from ai_runtime.infrastructure.db.repositories.organization_repository import SqlAlchemyOrganizationRepository
 from ai_runtime.infrastructure.db.repositories.usage_repository import SqlAlchemyUsageRepository
 from ai_runtime.infrastructure.pricing import StaticCostEstimator
+from ai_runtime.infrastructure.redis import RedisIdempotencyStore, RedisRateLimiter, create_redis_client
 from ai_runtime.infrastructure.security.api_key_crypto import Argon2ApiKeyHasher
 from ai_runtime.providers.openai.adapter import OpenAIModelProvider
 
@@ -88,9 +90,10 @@ AuthenticatedPrincipalDep = Annotated[AuthenticatedPrincipal, Depends(get_authen
 
 
 async def get_create_response(request: Request, session: DbSessionDep) -> CreateResponse:
-    """Build CreateResponse wired to OpenAI, usage persistence, and cost estimation."""
+    """Build CreateResponse wired to OpenAI, Redis coordination, and usage persistence."""
     settings: Settings = request.app.state.settings
     http_client: httpx.AsyncClient = request.app.state.http_client
+    redis: Redis = request.app.state.redis
     provider = OpenAIModelProvider(
         api_key=settings.openai_api_key,
         http_client=http_client,
@@ -100,6 +103,12 @@ async def get_create_response(request: Request, session: DbSessionDep) -> Create
         provider,
         SqlAlchemyUsageRepository(session),
         StaticCostEstimator(),
+        RedisRateLimiter(
+            redis,
+            requests_per_minute=settings.rate_limit_requests_per_minute,
+            burst=settings.rate_limit_burst,
+        ),
+        RedisIdempotencyStore(redis, ttl_seconds=settings.idempotency_ttl_seconds),
         provider_name="openai",
     )
 
@@ -124,14 +133,17 @@ RequestIdDep = Annotated[str, Depends(require_request_id)]
 
 @asynccontextmanager
 async def application_lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Manage shared HTTP and database resources for the application lifetime."""
+    """Manage shared HTTP, Redis, and database resources for the application lifetime."""
     settings: Settings = app.state.settings
     engine = create_db_engine(settings.database_url)
     app.state.engine = engine
     app.state.session_factory = create_session_factory(engine)
+    redis = create_redis_client(settings.redis_url)
+    app.state.redis = redis
     try:
         async with httpx.AsyncClient() as http_client:
             app.state.http_client = http_client
             yield
     finally:
+        await redis.aclose()
         await engine.dispose()

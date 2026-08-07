@@ -24,12 +24,14 @@ dependencies = [
   "fastapi>=0.115.0",
   "httpx>=0.28.0",
   "pydantic-settings>=2.8.0",
+  "redis>=5.2.0",
   "sqlalchemy[asyncio]>=2.0.40",
   "uvicorn>=0.34.0",
 ]
 
 [project.optional-dependencies]
 dev = [
+  "fakeredis[lua]>=2.26.0",
   "httpx2>=0.2.0",
   "mypy>=1.15.0",
   "pytest>=8.3.0",

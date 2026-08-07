@@ -210,7 +210,7 @@ Autogenerate only sees models imported into the metadata graph. Import new ORM m
 
 ## Running with Docker Compose
 
-For a repeatable local stack (PostgreSQL + migrations + API), use Docker Compose from the repository root:
+For a repeatable local stack (PostgreSQL + Redis + migrations + API), use Docker Compose from the repository root:
 
 ```bash
 cp .env.example .env
@@ -219,7 +219,9 @@ cp .env.example .env
 docker compose up --build
 ```
 
-Compose starts PostgreSQL 17, waits until it is healthy, runs `alembic upgrade head` via the one-shot `migrate` service, then starts the API. The API and migrate services receive `AI_RUNTIME_DATABASE_URL` pointed at the `postgres` hostname. Port 8000 (API) and 5432 (Postgres) are published to the host. Optional variables load from `.env`; Compose `environment` values override matching keys from that file.
+Compose starts PostgreSQL 17 and Redis 7, waits until both are healthy, runs `alembic upgrade head` via the one-shot `migrate` service, then starts the API. The API receives `AI_RUNTIME_DATABASE_URL` and `AI_RUNTIME_REDIS_URL` pointed at the `postgres` / `redis` hostnames. Ports 8000 (API), 5432 (Postgres), and 6379 (Redis) are published to the host. Optional variables load from `.env`; Compose `environment` values override matching keys from that file.
+
+`POST /v1/responses` enforces a platform default per-organization token-bucket rate limit and honors an optional `Idempotency-Key` header (replay on success, `409` while in progress). When Redis is down, both features fail open.
 
 Useful commands:
 
@@ -231,9 +233,9 @@ docker compose run --rm migrate           # re-run migrations only
 docker compose down                       # stop and remove containers
 ```
 
-While the stack is running, the same endpoints documented above are available at [http://127.0.0.1:8000](http://127.0.0.1:8000). To run Uvicorn or Alembic on the host against Compose Postgres, keep the default localhost database URL from `.env.example`.
+While the stack is running, the same endpoints documented above are available at [http://127.0.0.1:8000](http://127.0.0.1:8000). To run Uvicorn or Alembic on the host against Compose Postgres/Redis, keep the default localhost URLs from `.env.example`.
 
-`GET /health` does not require a live database connection; it remains a liveness probe.
+`GET /health` does not require a live database or Redis connection; it remains a liveness probe.
 
 ## Planned technology stack
 

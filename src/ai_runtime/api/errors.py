@@ -9,6 +9,8 @@ class ErrorCode(StrEnum):
     INVALID_REQUEST = "invalid_request"
     UNAUTHORIZED = "unauthorized"
     FORBIDDEN = "forbidden"
+    RATE_LIMITED = "rate_limited"
+    CONFLICT = "conflict"
     PROVIDER_ERROR = "provider_error"
     INTERNAL_ERROR = "internal_error"
 
@@ -16,8 +18,16 @@ class ErrorCode(StrEnum):
 class APIError(Exception):
     """Client-facing error mapped to the standard API error envelope."""
 
-    def __init__(self, *, code: ErrorCode, message: str, status_code: int) -> None:
+    def __init__(
+        self,
+        *,
+        code: ErrorCode,
+        message: str,
+        status_code: int,
+        headers: dict[str, str] | None = None,
+    ) -> None:
         self.code = code
         self.message = message
         self.status_code = status_code
+        self.headers = headers or {}
         super().__init__(message)

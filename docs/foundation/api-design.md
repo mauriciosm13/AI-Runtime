@@ -44,6 +44,32 @@ The API extracts credentials at the boundary. `AuthenticateApiKey` validates the
 
 `GET /health` remains unauthenticated (liveness). `POST /v1/responses` requires a valid bearer key.
 
+## Rate limiting
+
+`POST /v1/responses` enforces a platform default token-bucket rate limit **per organization** (configured via `AI_RUNTIME_RATE_LIMIT_*`). Organization-specific quotas are a later feature.
+
+| Condition | HTTP | `error.code` | Headers |
+| --- | --- | --- | --- |
+| Organization request budget exhausted | `429` | `rate_limited` | `Retry-After` (seconds) |
+
+When Redis is unavailable, rate limiting fails open: the request proceeds and a warning is logged.
+
+## Idempotency
+
+Clients may send an optional `Idempotency-Key` header on `POST /v1/responses`:
+
+- Value: 1–128 characters matching `[A-Za-z0-9._:-]`.
+- Scope: `(organization_id, Idempotency-Key)`.
+- Retention: bounded TTL (`AI_RUNTIME_IDEMPOTENCY_TTL_SECONDS`, default 24h).
+
+| Condition | HTTP | `error.code` |
+| --- | --- | --- |
+| Blank or invalid `Idempotency-Key` | `422` | `invalid_request` |
+| Same key already in progress | `409` | `conflict` |
+| Same key previously completed | `200` | (replay of stored response body; no new provider call) |
+
+When Redis is unavailable, idempotency fails open: the request proceeds without coordination guarantees.
+
 ## Unified response resource
 
 `POST /v1/responses` is the planned provider-neutral model-invocation endpoint. It is intentionally a resource-oriented endpoint rather than a provider-specific proxy.
@@ -94,7 +120,8 @@ This HTTP correlation identifier is distinct from `response.id`, which identifie
 - `401 Unauthorized` represents missing or invalid credentials.
 - `403 Forbidden` represents valid credentials lacking the required entitlement.
 - `404 Not Found` avoids revealing resources outside the caller's permitted scope.
-- `429 Too Many Requests` represents enforced rate limits or quota exhaustion.
+- `429 Too Many Requests` represents enforced rate limits or quota exhaustion (`error.code` `rate_limited` for platform rate limits).
+- `409 Conflict` represents an in-flight `Idempotency-Key` collision (`error.code` `conflict`).
 - `502 Bad Gateway` and `503 Service Unavailable` represent normalized upstream/provider failures.
 
 ## Evolution rules
