@@ -4,6 +4,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 from uuid import uuid4
+import json
 import httpx
 import pytest
 from fastapi import FastAPI
@@ -401,7 +402,15 @@ def test_post_responses_returns_429_when_rate_limited() -> None:
 
 def test_post_responses_replays_idempotent_response() -> None:
     """A completed Idempotency-Key returns the cached body without calling the provider."""
-    payload = '{"id":"resp_cached","model":"gpt-4o-mini","output":{"role":"assistant","content":"Cached"},"usage":{"input_tokens":1,"output_tokens":1}}'
+    payload = json.dumps(
+        {
+            "id": "resp_cached",
+            "model": "gpt-4o-mini",
+            "output": {"role": "assistant", "content": "Cached"},
+            "usage": {"input_tokens": 1, "output_tokens": 1},
+        },
+        separators=(",", ":"),
+    )
     provider = FakeModelProvider(response=_success_response())
     client = _client_with_provider(
         provider,

@@ -1,6 +1,7 @@
 """Unit tests for the CreateResponse use case."""
 
 import asyncio
+import json
 from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
@@ -240,8 +241,14 @@ def test_create_response_raises_when_rate_limited() -> None:
 def test_create_response_replays_completed_idempotency_payload() -> None:
     """Completed idempotency records return the cached response without provider calls."""
     cached = _response(usage=TokenUsage(input_tokens=3, output_tokens=2))
-    payload = (
-        '{"id":"response-1","model":"fake-model","output":{"role":"assistant","content":"Hi"},"usage":{"input_tokens":3,"output_tokens":2}}'
+    payload = json.dumps(
+        {
+            "id": "response-1",
+            "model": "fake-model",
+            "output": {"role": "assistant", "content": "Hi"},
+            "usage": {"input_tokens": 3, "output_tokens": 2},
+        },
+        separators=(",", ":"),
     )
     store = FakeIdempotencyStore(IdempotencyCompleted(payload=payload))
     provider = FakeModelProvider(response=_response())
