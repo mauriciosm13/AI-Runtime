@@ -7,6 +7,8 @@ class ErrorCode(StrEnum):
     """Programmatic error identifiers exposed to API clients."""
 
     INVALID_REQUEST = "invalid_request"
+    UNAUTHORIZED = "unauthorized"
+    FORBIDDEN = "forbidden"
     PROVIDER_ERROR = "provider_error"
     INTERNAL_ERROR = "internal_error"
 

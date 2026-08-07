@@ -10,11 +10,16 @@ from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatchError
 
 # Public key format required by api-design.md.
-_KEY_PUBLIC_PREFIX = "airt_"
+KEY_PUBLIC_PREFIX = "airt_"
 # urlsafe token length in bytes before encoding; yields ~43 chars of entropy.
 _SECRET_TOKEN_BYTES = 32
 # Non-secret display/lookup prefix: "airt_" + first 8 chars of the random part.
-_DISPLAY_PREFIX_LENGTH = len(_KEY_PUBLIC_PREFIX) + 8
+LOOKUP_PREFIX_LENGTH = len(KEY_PUBLIC_PREFIX) + 8
+
+
+def derive_lookup_prefix(secret: str) -> str:
+    """Return the non-secret lookup prefix for an ``airt_...`` plaintext secret."""
+    return secret[:LOOKUP_PREFIX_LENGTH]
 
 
 class Argon2ApiKeyHasher:
@@ -27,9 +32,13 @@ class Argon2ApiKeyHasher:
     def generate_secret(self) -> tuple[str, str]:
         """Return ``(plaintext_secret, display_prefix)`` with an ``airt_`` prefix."""
         token = secrets.token_urlsafe(_SECRET_TOKEN_BYTES)
-        secret = f"{_KEY_PUBLIC_PREFIX}{token}"
-        prefix = secret[:_DISPLAY_PREFIX_LENGTH]
+        secret = f"{KEY_PUBLIC_PREFIX}{token}"
+        prefix = derive_lookup_prefix(secret)
         return secret, prefix
+
+    def derive_lookup_prefix(self, secret: str) -> str:
+        """Return the non-secret lookup prefix derived from a plaintext secret."""
+        return derive_lookup_prefix(secret)
 
     def hash_secret(self, secret: str) -> str:
         """Return an argon2id digest for ``secret`` (salt embedded in the digest)."""

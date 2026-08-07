@@ -25,6 +25,10 @@ class OrganizationNotFoundError(Exception):
     """Raised when an organization cannot be resolved by id."""
 
 
+class OrganizationSuspendedError(Exception):
+    """Raised when an organization exists but is suspended from API use."""
+
+
 def _require_non_blank(value: str, field_name: str) -> None:
     """Reject empty or whitespace-only strings."""
     if not value.strip():

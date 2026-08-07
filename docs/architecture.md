@@ -33,7 +33,7 @@ The API layer owns FastAPI routes, HTTP request and response schemas, authentica
 
 Request correlation is handled by middleware in `api/middleware/request_context.py`. Each HTTP request receives a `request_id` stored on `request.state`, echoed in the `X-Request-ID` response header, included in error envelopes, and emitted in structured request logs. Routes and exception handlers do not generate correlation identifiers inline.
 
-`POST /v1/responses` validates a JSON body with Pydantic schemas, maps it to `GenerationRequest`, invokes `CreateResponse`, and serializes `GenerationResponse`. Provider failures map to `502 Bad Gateway`; validation failures map to `422 Unprocessable Entity`. Both use the standardized error envelope defined in `api/schemas/errors.py` and registered through `api/exception_handlers.py`. The composition root wires `OpenAIModelProvider` through FastAPI dependencies and stores a shared `httpx.AsyncClient` on the application lifespan.
+`POST /v1/responses` requires bearer API-key authentication before generation. The API layer extracts `Authorization: Bearer airt_...`, invokes `AuthenticateApiKey`, and injects an `AuthenticatedPrincipal` (no plaintext secret or hash). Missing or invalid credentials map to `401 Unauthorized`; suspended organizations map to `403 Forbidden`. After auth, the route validates a JSON body with Pydantic schemas, maps it to `GenerationRequest`, invokes `CreateResponse`, and serializes `GenerationResponse`. Provider failures map to `502 Bad Gateway`; validation failures map to `422 Unprocessable Entity`. Errors use the standardized envelope in `api/schemas/errors.py` via `api/exception_handlers.py`. The composition root wires `OpenAIModelProvider`, SQLAlchemy repositories, and `Argon2ApiKeyHasher` through FastAPI dependencies and stores a shared `httpx.AsyncClient` on the application lifespan.
 
 ### Application
 
@@ -43,7 +43,7 @@ Application code expresses workflows; it does not contain HTTP-specific concerns
 
 `CreateResponse` in `application/responses/` receives a provider-neutral `GenerationRequest`, delegates generation to an injected `ModelProvider`, and returns the resulting `GenerationResponse`. It is exposed through `POST /v1/responses` in the API layer.
 
-`CreateOrganization` and `GetOrganization` in `application/organizations/` create and load tenants through an injected `OrganizationRepository`. `CreateApiKey`, `RevokeApiKey`, and `ListApiKeysForOrganization` in `application/api_keys/` issue, revoke, and list credentials through injected `ApiKeyRepository`, `OrganizationRepository`, and `ApiKeyHasher` ports. They are not yet exposed over HTTP; operator routes and bearer authentication arrive with later authentication work (#14).
+`CreateOrganization` and `GetOrganization` in `application/organizations/` create and load tenants through an injected `OrganizationRepository`. `CreateApiKey`, `RevokeApiKey`, and `ListApiKeysForOrganization` in `application/api_keys/` issue, revoke, and list credentials through injected `ApiKeyRepository`, `OrganizationRepository`, and `ApiKeyHasher` ports. They are not yet exposed over HTTP; operator routes remain later work. `AuthenticateApiKey` in `application/auth/` validates a plaintext bearer secret via prefix lookup + `ApiKeyHasher.verify_secret`, rejects revoked keys and missing organizations with a generic credential failure, rejects suspended organizations explicitly, and returns an `AuthenticatedPrincipal` for request context.
 
 ### Domain
 

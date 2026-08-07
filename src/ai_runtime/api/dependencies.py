@@ -6,10 +6,20 @@ from typing import Annotated
 import httpx
 from fastapi import Depends, FastAPI, Request
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from ai_runtime.api.errors import APIError, ErrorCode
+from ai_runtime.application.auth.authenticate_api_key import AuthenticateApiKey, AuthenticatedPrincipal
 from ai_runtime.application.responses.create_response import CreateResponse
 from ai_runtime.config.settings import Settings
+from ai_runtime.domain.api_key import InvalidApiKeyCredentialsError
+from ai_runtime.domain.organization import OrganizationSuspendedError
 from ai_runtime.infrastructure.db import create_db_engine, create_session_factory
+from ai_runtime.infrastructure.db.repositories.api_key_repository import SqlAlchemyApiKeyRepository
+from ai_runtime.infrastructure.db.repositories.organization_repository import SqlAlchemyOrganizationRepository
+from ai_runtime.infrastructure.security.api_key_crypto import Argon2ApiKeyHasher
 from ai_runtime.providers.openai.adapter import OpenAIModelProvider
+
+_UNAUTHORIZED_MESSAGE = "Invalid or missing API key."
+_FORBIDDEN_SUSPENDED_MESSAGE = "Organization is suspended."
 
 
 def get_settings(request: Request) -> Settings:
@@ -27,6 +37,51 @@ async def get_db_session(request: Request) -> AsyncIterator[AsyncSession]:
 
 
 DbSessionDep = Annotated[AsyncSession, Depends(get_db_session)]
+
+
+def extract_bearer_token(request: Request) -> str:
+    """Extract the bearer secret from the Authorization header.
+
+    Raises ``APIError`` with 401 for missing, blank, or non-Bearer credentials.
+    """
+    authorization = request.headers.get("Authorization")
+    if authorization is None or not authorization.strip():
+        raise APIError(code=ErrorCode.UNAUTHORIZED, message=_UNAUTHORIZED_MESSAGE, status_code=401)
+    scheme, _, credentials = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not credentials.strip():
+        raise APIError(code=ErrorCode.UNAUTHORIZED, message=_UNAUTHORIZED_MESSAGE, status_code=401)
+    return credentials.strip()
+
+
+async def get_authenticate_api_key(session: DbSessionDep) -> AuthenticateApiKey:
+    """Build AuthenticateApiKey with request-scoped SQLAlchemy repositories."""
+    return AuthenticateApiKey(
+        SqlAlchemyApiKeyRepository(session),
+        SqlAlchemyOrganizationRepository(session),
+        Argon2ApiKeyHasher(),
+    )
+
+
+AuthenticateApiKeyDep = Annotated[AuthenticateApiKey, Depends(get_authenticate_api_key)]
+
+
+async def get_authenticated_principal(
+    request: Request,
+    secret: Annotated[str, Depends(extract_bearer_token)],
+    use_case: AuthenticateApiKeyDep,
+) -> AuthenticatedPrincipal:
+    """Authenticate the bearer secret and attach the principal to request state."""
+    try:
+        principal = await use_case.execute(secret)
+    except InvalidApiKeyCredentialsError as err:
+        raise APIError(code=ErrorCode.UNAUTHORIZED, message=_UNAUTHORIZED_MESSAGE, status_code=401) from err
+    except OrganizationSuspendedError as err:
+        raise APIError(code=ErrorCode.FORBIDDEN, message=_FORBIDDEN_SUSPENDED_MESSAGE, status_code=403) from err
+    request.state.principal = principal
+    return principal
+
+
+AuthenticatedPrincipalDep = Annotated[AuthenticatedPrincipal, Depends(get_authenticated_principal)]
 
 
 async def get_create_response(request: Request) -> CreateResponse:

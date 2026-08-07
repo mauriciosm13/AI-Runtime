@@ -19,6 +19,14 @@ class ApiKeyHasher(Protocol):
         """
         ...
 
+    def derive_lookup_prefix(self, secret: str) -> str:
+        """Return the non-secret lookup prefix derived from a plaintext secret.
+
+        Must use the same length/rule as ``generate_secret`` so create and
+        authenticate never drift.
+        """
+        ...
+
     def hash_secret(self, secret: str) -> str:
         """Return a salted KDF digest for ``secret`` (never reversible)."""
         ...

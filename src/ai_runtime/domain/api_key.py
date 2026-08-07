@@ -30,6 +30,15 @@ class ApiKeyAlreadyRevokedError(Exception):
     """
 
 
+class InvalidApiKeyCredentialsError(Exception):
+    """Raised when a presented API key cannot be authenticated.
+
+    Covers unknown prefix, hash mismatch, revoked keys, and missing
+    organizations. Callers must map this to a generic unauthorized response
+    without revealing which check failed.
+    """
+
+
 def _require_non_blank(value: str, field_name: str) -> None:
     """Reject empty or whitespace-only strings."""
     if not value.strip():

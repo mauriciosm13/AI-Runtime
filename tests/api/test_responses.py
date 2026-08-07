@@ -3,13 +3,15 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
+from uuid import uuid4
 import httpx
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from ai_runtime.api.app import create_app
-from ai_runtime.api.dependencies import get_create_response
+from ai_runtime.api.dependencies import get_authenticated_principal, get_create_response
 from ai_runtime.api.middleware.request_context import REQUEST_ID_HEADER
+from ai_runtime.application.auth.authenticate_api_key import AuthenticatedPrincipal
 from ai_runtime.application.responses.create_response import CreateResponse
 from ai_runtime.domain.generation import GenerationRequest, GenerationResponse, Message, MessageRole, TokenUsage
 from ai_runtime.providers.openai.errors import ProviderError
@@ -49,13 +51,27 @@ def _request_body(**overrides: Any) -> dict[str, Any]:
     return body
 
 
+def _fake_principal() -> AuthenticatedPrincipal:
+    return AuthenticatedPrincipal(
+        api_key_id=uuid4(),
+        organization_id=uuid4(),
+        organization_slug="test-org",
+        api_key_prefix="airt_test1234",
+    )
+
+
 def _client_with_provider(provider: FakeModelProvider) -> TestClient:
+    """Test client with provider + auth bypassed (generation contract focus)."""
     app = create_app()
 
     async def override_create_response() -> CreateResponse:
         return CreateResponse(provider)
 
+    async def override_principal() -> AuthenticatedPrincipal:
+        return _fake_principal()
+
     app.dependency_overrides[get_create_response] = override_create_response
+    app.dependency_overrides[get_authenticated_principal] = override_principal
     return TestClient(app)
 
 

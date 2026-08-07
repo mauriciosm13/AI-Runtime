@@ -1,6 +1,6 @@
 """Unit tests for argon2id API key hashing and secret generation."""
 
-from ai_runtime.infrastructure.security.api_key_crypto import Argon2ApiKeyHasher
+from ai_runtime.infrastructure.security.api_key_crypto import LOOKUP_PREFIX_LENGTH, Argon2ApiKeyHasher, derive_lookup_prefix
 from ai_runtime.ports.api_key_hasher import ApiKeyHasher
 
 
@@ -18,7 +18,9 @@ def test_generate_secret_uses_airt_prefix() -> None:
     assert prefix.startswith("airt_")
     assert secret.startswith(prefix)
     assert len(prefix) < len(secret)
-    assert len(prefix) == len("airt_") + 8
+    assert len(prefix) == LOOKUP_PREFIX_LENGTH
+    assert hasher.derive_lookup_prefix(secret) == prefix
+    assert derive_lookup_prefix(secret) == prefix
 
 
 def test_verify_accepts_original_secret() -> None:

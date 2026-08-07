@@ -28,13 +28,21 @@ Administrative authorization details will be designed with the authentication fe
 
 ## Authentication
 
-Application clients will authenticate with a bearer API key:
+Application clients authenticate with a bearer API key:
 
 ```http
 Authorization: Bearer airt_...
 ```
 
-The API extracts credentials at the boundary. An application use case validates the key, resolves its organization, and enforces organization policy. Routes must not query key storage directly.
+The API extracts credentials at the boundary. `AuthenticateApiKey` validates the key (prefix lookup + argon2id verify), resolves its organization, and rejects suspended organizations. Routes must not query key storage directly.
+
+| Condition | HTTP | `error.code` |
+| --- | --- | --- |
+| Missing, blank, or non-Bearer `Authorization` | `401` | `unauthorized` |
+| Unknown / wrong / revoked key, or missing organization | `401` | `unauthorized` |
+| Active key whose organization is suspended | `403` | `forbidden` |
+
+`GET /health` remains unauthenticated (liveness). `POST /v1/responses` requires a valid bearer key.
 
 ## Unified response resource
 
