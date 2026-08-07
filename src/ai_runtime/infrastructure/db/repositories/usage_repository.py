@@ -66,9 +66,7 @@ class SqlAlchemyUsageRepository:
 
     async def get_by_request_id(self, request_id: str) -> UsageRecord | None:
         """Load a usage record by correlation request_id."""
-        result = await self._session.execute(
-            select(UsageRecordRow).where(UsageRecordRow.request_id == request_id)
-        )
+        result = await self._session.execute(select(UsageRecordRow).where(UsageRecordRow.request_id == request_id))
         row = result.scalar_one_or_none()
         if row is None:
             return None
