@@ -33,7 +33,7 @@ The API layer owns FastAPI routes, HTTP request and response schemas, authentica
 
 Request correlation is handled by middleware in `api/middleware/request_context.py`. Each HTTP request receives a `request_id` stored on `request.state`, echoed in the `X-Request-ID` response header, included in error envelopes, and emitted in structured request logs. Routes and exception handlers do not generate correlation identifiers inline.
 
-`POST /v1/responses` requires bearer API-key authentication before generation. The API layer extracts `Authorization: Bearer airt_...`, invokes `AuthenticateApiKey`, and injects an `AuthenticatedPrincipal` (no plaintext secret or hash). Missing or invalid credentials map to `401 Unauthorized`; suspended organizations map to `403 Forbidden`. After auth, the route validates a JSON body with Pydantic schemas, maps it to `GenerationRequest`, invokes `CreateResponse`, and serializes `GenerationResponse`. Provider failures map to `502 Bad Gateway`; validation failures map to `422 Unprocessable Entity`. Errors use the standardized envelope in `api/schemas/errors.py` via `api/exception_handlers.py`. The composition root wires `OpenAIModelProvider`, SQLAlchemy repositories, and `Argon2ApiKeyHasher` through FastAPI dependencies and stores a shared `httpx.AsyncClient` on the application lifespan.
+`POST /v1/responses` requires bearer API-key authentication before generation. The API layer extracts `Authorization: Bearer airt_...`, invokes `AuthenticateApiKey`, and injects an `AuthenticatedPrincipal` (no plaintext secret or hash). Missing or invalid credentials map to `401 Unauthorized`; suspended organizations map to `403 Forbidden`. After auth, the route validates a JSON body with Pydantic schemas, maps it to `CreateResponseCommand` (generation request plus `request_id`, `organization_id`, and `api_key_id`), invokes `CreateResponse`, and serializes `GenerationResponse`. Provider failures map to `502 Bad Gateway`; validation failures map to `422 Unprocessable Entity`. Errors use the standardized envelope in `api/schemas/errors.py` via `api/exception_handlers.py`. The composition root wires `OpenAIModelProvider`, SQLAlchemy repositories (including usage), `StaticCostEstimator`, and `Argon2ApiKeyHasher` through FastAPI dependencies and stores a shared `httpx.AsyncClient` on the application lifespan.
 
 ### Application
 
@@ -41,7 +41,7 @@ The application layer implements use cases. It coordinates domain policies with 
 
 Application code expresses workflows; it does not contain HTTP-specific concerns or direct SQLAlchemy, Redis, AWS, or provider-SDK calls.
 
-`CreateResponse` in `application/responses/` receives a provider-neutral `GenerationRequest`, delegates generation to an injected `ModelProvider`, and returns the resulting `GenerationResponse`. It is exposed through `POST /v1/responses` in the API layer.
+`CreateResponse` in `application/responses/` receives a `CreateResponseCommand`, delegates generation to an injected `ModelProvider`, estimates cost through `CostEstimator`, persists a `UsageRecord` through `UsageRepository` after a successful provider response, and returns the `GenerationResponse`. Prompt/response content is not stored. It is exposed through `POST /v1/responses` in the API layer.
 
 `CreateOrganization` and `GetOrganization` in `application/organizations/` create and load tenants through an injected `OrganizationRepository`. `CreateApiKey`, `RevokeApiKey`, and `ListApiKeysForOrganization` in `application/api_keys/` issue, revoke, and list credentials through injected `ApiKeyRepository`, `OrganizationRepository`, and `ApiKeyHasher` ports. They are not yet exposed over HTTP; operator routes remain later work. `AuthenticateApiKey` in `application/auth/` validates a plaintext bearer secret via prefix lookup + `ApiKeyHasher.verify_secret`, rejects revoked keys and missing organizations with a generic credential failure, rejects suspended organizations explicitly, and returns an `AuthenticatedPrincipal` for request context.
 
@@ -51,7 +51,7 @@ The domain layer contains provider-agnostic business concepts and rules: model c
 
 A domain rule belongs here when it would still apply if FastAPI, PostgreSQL, Redis, and every provider were replaced.
 
-Domain contracts under `domain/` include provider-neutral text generation (`MessageRole`, `Message`, `GenerationRequest`, `TokenUsage`, `GenerationResponse`), organization tenancy (`Organization`, `OrganizationStatus`, slug/name invariants, and organization lifecycle errors), and API-key credentials (`ApiKey`, `ApiKeyMetadata`, `ApiKeyStatus`, revoke invariants, and key lifecycle errors). These types do not know about HTTP, SDKs, or SQLAlchemy. Plaintext API-key secrets are never part of the persisted domain entity.
+Domain contracts under `domain/` include provider-neutral text generation (`MessageRole`, `Message`, `GenerationRequest`, `TokenUsage`, `GenerationResponse`), organization tenancy (`Organization`, `OrganizationStatus`, slug/name invariants, and organization lifecycle errors), API-key credentials (`ApiKey`, `ApiKeyMetadata`, `ApiKeyStatus`, revoke invariants, and key lifecycle errors), and usage accounting (`UsageRecord`, `ModelPricing`, `estimate_cost_usd`). These types do not know about HTTP, SDKs, or SQLAlchemy. Plaintext API-key secrets are never part of the persisted domain entity.
 
 ### Ports
 
@@ -63,7 +63,7 @@ Ports prevent use cases from depending on concrete adapters. They should be intr
 
 `OrganizationRepository` in `ports/organization_repository.py` defines async `add`, `get_by_id`, and `get_by_slug` for organization persistence. `SqlAlchemyOrganizationRepository` under `infrastructure/db/repositories/` implements it.
 
-`ApiKeyRepository` in `ports/api_key_repository.py` defines async `add`, `get_by_id`, `list_by_organization`, `find_by_prefix`, and `save` for credential persistence. `ApiKeyHasher` in `ports/api_key_hasher.py` defines `generate_secret`, `hash_secret`, and `verify_secret` so application code can create and check keys without depending on a crypto library. `SqlAlchemyApiKeyRepository` and `Argon2ApiKeyHasher` (argon2id via `argon2-cffi`) implement these ports under infrastructure.
+`ApiKeyRepository` in `ports/api_key_repository.py` defines async `add`, `get_by_id`, `list_by_organization`, `find_by_prefix`, and `save` for credential persistence. `ApiKeyHasher` in `ports/api_key_hasher.py` defines `generate_secret`, `hash_secret`, and `verify_secret` so application code can create and check keys without depending on a crypto library. `UsageRepository` in `ports/usage_repository.py` defines async `add`, `get_by_id`, and `get_by_request_id` for usage accounting. `CostEstimator` in `ports/cost_estimator.py` estimates USD cost from provider/model/token usage. `SqlAlchemyApiKeyRepository`, `SqlAlchemyUsageRepository`, `Argon2ApiKeyHasher` (argon2id via `argon2-cffi`), and `StaticCostEstimator` implement these ports under infrastructure.
 
 ### Providers
 
@@ -79,7 +79,7 @@ Infrastructure contains concrete external integrations: SQLAlchemy repositories,
 
 The infrastructure package `infrastructure/db/` constructs the async SQLAlchemy engine (`create_db_engine`) and session factory (`create_session_factory`) for PostgreSQL via asyncpg, defines the shared ORM `Base`, and hosts declarative models under `infrastructure/db/models/` plus repository adapters under `infrastructure/db/repositories/`. The API composition root stores the engine and session factory on the application lifespan and exposes request-scoped `AsyncSession` injection through `get_db_session`.
 
-Schema changes are versioned with Alembic (`alembic.ini` and `alembic/` at the repository root). `alembic/env.py` uses async SQLAlchemy, imports ORM models so they register on `Base.metadata`, and resolves the database URL through `get_alembic_database_url()` / `Settings`. Revision `0001_baseline` is an empty baseline; `0002_organizations` creates the `organizations` table; `0003_api_keys` creates the `api_keys` table (organization FK, non-secret `prefix`, argon2id `secret_hash`, status, timestamps).
+Schema changes are versioned with Alembic (`alembic.ini` and `alembic/` at the repository root). `alembic/env.py` uses async SQLAlchemy, imports ORM models so they register on `Base.metadata`, and resolves the database URL through `get_alembic_database_url()` / `Settings`. Revision `0001_baseline` is an empty baseline; `0002_organizations` creates the `organizations` table; `0003_api_keys` creates the `api_keys` table (organization FK, non-secret `prefix`, argon2id `secret_hash`, status, timestamps); `0004_usage_records` creates the `usage_records` table (unique `request_id`, organization/API-key FKs, provider/model, nullable token counts and estimated USD cost).
 
 ### Telemetry
 

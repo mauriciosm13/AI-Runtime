@@ -20,10 +20,10 @@ def test_alembic_ini_script_location() -> None:
 
 
 def test_migration_revision_chain() -> None:
-    """Alembic revisions form a single linear chain ending at api_keys."""
+    """Alembic revisions form a single linear chain ending at usage_records."""
     config = Config(str(_REPO_ROOT / "alembic.ini"))
     script = ScriptDirectory.from_config(config)
-    assert script.get_heads() == ["0003_api_keys"]
+    assert script.get_heads() == ["0004_usage_records"]
     baseline = script.get_revision("0001_baseline")
     assert baseline is not None
     assert baseline.down_revision is None
@@ -33,6 +33,9 @@ def test_migration_revision_chain() -> None:
     api_keys = script.get_revision("0003_api_keys")
     assert api_keys is not None
     assert api_keys.down_revision == "0002_organizations"
+    usage_records = script.get_revision("0004_usage_records")
+    assert usage_records is not None
+    assert usage_records.down_revision == "0003_api_keys"
 
 
 def test_get_alembic_database_url_uses_settings(monkeypatch: MonkeyPatch) -> None:

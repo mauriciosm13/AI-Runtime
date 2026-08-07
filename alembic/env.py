@@ -8,7 +8,7 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 from ai_runtime.infrastructure.db.base import Base
 from ai_runtime.infrastructure.db.migration_settings import get_alembic_database_url
-from ai_runtime.infrastructure.db.models import ApiKeyRow, OrganizationRow
+from ai_runtime.infrastructure.db.models import ApiKeyRow, OrganizationRow, UsageRecordRow
 
 config = context.config
 
@@ -21,6 +21,8 @@ if OrganizationRow.__tablename__ not in target_metadata.tables:
     raise RuntimeError("organizations ORM model is not registered on Base.metadata")
 if ApiKeyRow.__tablename__ not in target_metadata.tables:
     raise RuntimeError("api_keys ORM model is not registered on Base.metadata")
+if UsageRecordRow.__tablename__ not in target_metadata.tables:
+    raise RuntimeError("usage_records ORM model is not registered on Base.metadata")
 
 
 def run_migrations_offline() -> None:

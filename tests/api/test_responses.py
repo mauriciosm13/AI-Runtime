@@ -15,6 +15,7 @@ from ai_runtime.application.auth.authenticate_api_key import AuthenticatedPrinci
 from ai_runtime.application.responses.create_response import CreateResponse
 from ai_runtime.domain.generation import GenerationRequest, GenerationResponse, Message, MessageRole, TokenUsage
 from ai_runtime.providers.openai.errors import ProviderError
+from tests.application.responses.test_create_response import FakeCostEstimator, FakeUsageRepository
 
 
 class FakeModelProvider:
@@ -60,12 +61,17 @@ def _fake_principal() -> AuthenticatedPrincipal:
     )
 
 
-def _client_with_provider(provider: FakeModelProvider) -> TestClient:
+def _client_with_provider(
+    provider: FakeModelProvider,
+    *,
+    usage_records: FakeUsageRepository | None = None,
+) -> TestClient:
     """Test client with provider + auth bypassed (generation contract focus)."""
     app = create_app()
+    records = usage_records or FakeUsageRepository()
 
     async def override_create_response() -> CreateResponse:
-        return CreateResponse(provider)
+        return CreateResponse(provider, records, FakeCostEstimator(), provider_name="openai")
 
     async def override_principal() -> AuthenticatedPrincipal:
         return _fake_principal()
@@ -94,6 +100,41 @@ def test_post_responses_returns_200_with_expected_payload() -> None:
             messages=(Message(role=MessageRole.USER, content="Hello"),),
         )
     ]
+
+
+def test_post_responses_records_usage_with_request_id() -> None:
+    """Successful generation persists a usage row keyed by X-Request-ID."""
+    provider = FakeModelProvider(response=_success_response())
+    records = FakeUsageRepository()
+    principal = _fake_principal()
+    app = create_app()
+
+    async def override_create_response() -> CreateResponse:
+        return CreateResponse(provider, records, FakeCostEstimator(), provider_name="openai")
+
+    async def override_principal() -> AuthenticatedPrincipal:
+        return principal
+
+    app.dependency_overrides[get_create_response] = override_create_response
+    app.dependency_overrides[get_authenticated_principal] = override_principal
+    client = TestClient(app)
+    response = client.post(
+        "/v1/responses",
+        json=_request_body(),
+        headers={REQUEST_ID_HEADER: "req_api_usage_1"},
+    )
+    assert response.status_code == 200
+    assert response.headers[REQUEST_ID_HEADER] == "req_api_usage_1"
+    assert len(records.added) == 1
+    stored = records.added[0]
+    assert stored.request_id == "req_api_usage_1"
+    assert stored.organization_id == principal.organization_id
+    assert stored.api_key_id == principal.api_key_id
+    assert stored.provider == "openai"
+    assert stored.model == "gpt-4o-mini"
+    assert stored.input_tokens == 10
+    assert stored.output_tokens == 5
+    assert stored.estimated_cost_usd is not None
 
 
 def test_post_responses_accepts_optional_generation_fields() -> None:

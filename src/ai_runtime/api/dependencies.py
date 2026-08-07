@@ -7,6 +7,7 @@ import httpx
 from fastapi import Depends, FastAPI, Request
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from ai_runtime.api.errors import APIError, ErrorCode
+from ai_runtime.api.middleware.request_context import get_request_id
 from ai_runtime.application.auth.authenticate_api_key import AuthenticateApiKey, AuthenticatedPrincipal
 from ai_runtime.application.responses.create_response import CreateResponse
 from ai_runtime.config.settings import Settings
@@ -15,6 +16,8 @@ from ai_runtime.domain.organization import OrganizationSuspendedError
 from ai_runtime.infrastructure.db import create_db_engine, create_session_factory
 from ai_runtime.infrastructure.db.repositories.api_key_repository import SqlAlchemyApiKeyRepository
 from ai_runtime.infrastructure.db.repositories.organization_repository import SqlAlchemyOrganizationRepository
+from ai_runtime.infrastructure.db.repositories.usage_repository import SqlAlchemyUsageRepository
+from ai_runtime.infrastructure.pricing import StaticCostEstimator
 from ai_runtime.infrastructure.security.api_key_crypto import Argon2ApiKeyHasher
 from ai_runtime.providers.openai.adapter import OpenAIModelProvider
 
@@ -84,8 +87,8 @@ async def get_authenticated_principal(
 AuthenticatedPrincipalDep = Annotated[AuthenticatedPrincipal, Depends(get_authenticated_principal)]
 
 
-async def get_create_response(request: Request) -> CreateResponse:
-    """Build CreateResponse wired to the configured OpenAI provider."""
+async def get_create_response(request: Request, session: DbSessionDep) -> CreateResponse:
+    """Build CreateResponse wired to OpenAI, usage persistence, and cost estimation."""
     settings: Settings = request.app.state.settings
     http_client: httpx.AsyncClient = request.app.state.http_client
     provider = OpenAIModelProvider(
@@ -93,10 +96,30 @@ async def get_create_response(request: Request) -> CreateResponse:
         http_client=http_client,
         base_url=settings.openai_base_url,
     )
-    return CreateResponse(provider)
+    return CreateResponse(
+        provider,
+        SqlAlchemyUsageRepository(session),
+        StaticCostEstimator(),
+        provider_name="openai",
+    )
 
 
 CreateResponseDep = Annotated[CreateResponse, Depends(get_create_response)]
+
+
+def require_request_id(request: Request) -> str:
+    """Return the middleware-assigned request_id or raise if missing."""
+    request_id = get_request_id(request)
+    if request_id is None or not request_id.strip():
+        raise APIError(
+            code=ErrorCode.INTERNAL_ERROR,
+            message="Request correlation identifier is missing.",
+            status_code=500,
+        )
+    return request_id
+
+
+RequestIdDep = Annotated[str, Depends(require_request_id)]
 
 
 @asynccontextmanager
