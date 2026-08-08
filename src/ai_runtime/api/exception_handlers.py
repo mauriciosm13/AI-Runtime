@@ -8,6 +8,7 @@ from ai_runtime.api.middleware.request_context import REQUEST_ID_HEADER, get_req
 from ai_runtime.api.schemas.errors import ErrorDetailSchema, ErrorResponseSchema
 from ai_runtime.domain.generation import DomainValidationError
 from ai_runtime.domain.idempotency import IdempotencyConflictError
+from ai_runtime.domain.organization_policy import ModelNotAvailableError, QuotaExceededError
 from ai_runtime.domain.rate_limit import RateLimitExceededError
 from ai_runtime.providers.openai.errors import ProviderError
 
@@ -91,6 +92,29 @@ async def rate_limit_exceeded_handler(request: Request, err: Exception) -> JSONR
     )
 
 
+async def quota_exceeded_handler(request: Request, err: Exception) -> JSONResponse:
+    """Normalize monthly quota denials to HTTP 429."""
+    assert isinstance(err, QuotaExceededError)
+    return _error_response(
+        status_code=429,
+        code=ErrorCode.QUOTA_EXCEEDED,
+        message=str(err),
+        request_id=get_request_id(request),
+        headers={"Retry-After": str(err.retry_after_seconds)},
+    )
+
+
+async def model_not_available_handler(request: Request, err: Exception) -> JSONResponse:
+    """Normalize model entitlement denials to HTTP 403."""
+    assert isinstance(err, ModelNotAvailableError)
+    return _error_response(
+        status_code=403,
+        code=ErrorCode.MODEL_NOT_AVAILABLE,
+        message=str(err),
+        request_id=get_request_id(request),
+    )
+
+
 async def idempotency_conflict_handler(request: Request, err: Exception) -> JSONResponse:
     """Normalize in-flight idempotency conflicts to HTTP 409."""
     assert isinstance(err, IdempotencyConflictError)
@@ -129,6 +153,8 @@ def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(RequestValidationError, validation_error_handler)
     app.add_exception_handler(DomainValidationError, domain_validation_error_handler)
     app.add_exception_handler(RateLimitExceededError, rate_limit_exceeded_handler)
+    app.add_exception_handler(QuotaExceededError, quota_exceeded_handler)
+    app.add_exception_handler(ModelNotAvailableError, model_not_available_handler)
     app.add_exception_handler(IdempotencyConflictError, idempotency_conflict_handler)
     app.add_exception_handler(ProviderError, provider_error_handler)
     app.add_exception_handler(Exception, unhandled_error_handler)

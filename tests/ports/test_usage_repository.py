@@ -26,6 +26,22 @@ class FakeUsageRepository:
     async def get_by_request_id(self, request_id: str) -> UsageRecord | None:
         return self._by_request_id.get(request_id)
 
+    async def sum_tokens_for_organization_in_period(
+        self,
+        organization_id: UUID,
+        *,
+        start: datetime,
+        end: datetime,
+    ) -> int:
+        total = 0
+        for record in self._by_id.values():
+            if record.organization_id != organization_id:
+                continue
+            if record.created_at < start or record.created_at >= end:
+                continue
+            total += (record.input_tokens or 0) + (record.output_tokens or 0)
+        return total
+
 
 def test_fake_repository_satisfies_usage_repository_contract() -> None:
     """A structural fake is accepted as UsageRepository."""

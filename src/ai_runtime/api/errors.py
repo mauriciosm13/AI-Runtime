@@ -10,6 +10,8 @@ class ErrorCode(StrEnum):
     UNAUTHORIZED = "unauthorized"
     FORBIDDEN = "forbidden"
     RATE_LIMITED = "rate_limited"
+    QUOTA_EXCEEDED = "quota_exceeded"
+    MODEL_NOT_AVAILABLE = "model_not_available"
     CONFLICT = "conflict"
     PROVIDER_ERROR = "provider_error"
     INTERNAL_ERROR = "internal_error"

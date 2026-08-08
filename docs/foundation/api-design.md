@@ -46,13 +46,27 @@ The API extracts credentials at the boundary. `AuthenticateApiKey` validates the
 
 ## Rate limiting
 
-`POST /v1/responses` enforces a platform default token-bucket rate limit **per organization** (configured via `AI_RUNTIME_RATE_LIMIT_*`). Organization-specific quotas are a later feature.
+`POST /v1/responses` enforces a platform default token-bucket rate limit **per organization** (configured via `AI_RUNTIME_RATE_LIMIT_*`). Organization-specific rate-limit overrides are a later feature.
 
 | Condition | HTTP | `error.code` | Headers |
 | --- | --- | --- | --- |
 | Organization request budget exhausted | `429` | `rate_limited` | `Retry-After` (seconds) |
 
 When Redis is unavailable, rate limiting fails open: the request proceeds and a warning is logged.
+
+## Organization access and quotas
+
+Before a provider call, `CreateResponse` enforces organization policy stored in PostgreSQL:
+
+- **Model entitlements** — when an organization has configured entitlements, only listed models are allowed. An empty entitlement set allows all models (backward compatible default).
+- **Monthly token quota** — when `organization_policies.monthly_token_limit` is set, the runtime sums `input_tokens + output_tokens` from `usage_records` for the current UTC calendar month and rejects requests that would meet or exceed the limit.
+
+| Condition | HTTP | `error.code` | Headers |
+| --- | --- | --- | --- |
+| Requested model not entitled for organization | `403` | `model_not_available` | — |
+| Monthly token quota exhausted | `429` | `quota_exceeded` | `Retry-After` (seconds until next UTC month) |
+
+Operator HTTP routes for managing policies are planned but not yet exposed. Policies are seeded through persistence adapters or migrations in the current slice.
 
 ## Idempotency
 
@@ -120,7 +134,7 @@ This HTTP correlation identifier is distinct from `response.id`, which identifie
 - `401 Unauthorized` represents missing or invalid credentials.
 - `403 Forbidden` represents valid credentials lacking the required entitlement.
 - `404 Not Found` avoids revealing resources outside the caller's permitted scope.
-- `429 Too Many Requests` represents enforced rate limits or quota exhaustion (`error.code` `rate_limited` for platform rate limits).
+- `429 Too Many Requests` represents enforced rate limits (`error.code` `rate_limited`) or monthly quota exhaustion (`error.code` `quota_exceeded`).
 - `409 Conflict` represents an in-flight `Idempotency-Key` collision (`error.code` `conflict`).
 - `502 Bad Gateway` and `503 Service Unavailable` represent normalized upstream/provider failures.
 

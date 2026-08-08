@@ -1,8 +1,9 @@
 """SQLAlchemy adapter for the UsageRepository port."""
 
+from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from ai_runtime.domain.usage import UsageRecord
 from ai_runtime.infrastructure.db.models.usage_record import UsageRecordRow
@@ -71,3 +72,22 @@ class SqlAlchemyUsageRepository:
         if row is None:
             return None
         return _to_domain(row)
+
+    async def sum_tokens_for_organization_in_period(
+        self,
+        organization_id: UUID,
+        *,
+        start: datetime,
+        end: datetime,
+    ) -> int:
+        """Sum input and output tokens for an organization within a half-open period."""
+        token_sum = func.coalesce(UsageRecordRow.input_tokens, 0) + func.coalesce(UsageRecordRow.output_tokens, 0)
+        result = await self._session.execute(
+            select(func.coalesce(func.sum(token_sum), 0)).where(
+                UsageRecordRow.organization_id == organization_id,
+                UsageRecordRow.created_at >= start,
+                UsageRecordRow.created_at < end,
+            )
+        )
+        total = result.scalar_one()
+        return int(total)

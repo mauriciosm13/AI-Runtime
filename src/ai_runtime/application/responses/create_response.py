@@ -4,6 +4,7 @@ import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
+from ai_runtime.application.policy.enforce_organization_policy import EnforceOrganizationPolicy, EnforceOrganizationPolicyCommand
 from ai_runtime.domain.generation import GenerationRequest, GenerationResponse, Message, MessageRole, TokenUsage
 from ai_runtime.domain.idempotency import IdempotencyConflictError
 from ai_runtime.domain.rate_limit import RateLimitExceededError
@@ -67,6 +68,7 @@ class CreateResponse:
         cost_estimator: CostEstimator,
         rate_limiter: RateLimiter,
         idempotency_store: IdempotencyStore,
+        enforce_organization_policy: EnforceOrganizationPolicy,
         *,
         provider_name: str = "openai",
     ) -> None:
@@ -75,6 +77,7 @@ class CreateResponse:
         self._cost_estimator = cost_estimator
         self._rate_limiter = rate_limiter
         self._idempotency_store = idempotency_store
+        self._enforce_organization_policy = enforce_organization_policy
         self._provider_name = provider_name
 
     async def execute(self, command: CreateResponseCommand) -> GenerationResponse:
@@ -98,6 +101,14 @@ class CreateResponse:
                 raise IdempotencyConflictError()
             assert isinstance(begin_result, IdempotencyMiss)
             claimed_idempotency = True
+
+        await self._enforce_organization_policy.execute(
+            EnforceOrganizationPolicyCommand(
+                organization_id=command.organization_id,
+                requested_model=command.request.model,
+                max_output_tokens=command.request.max_output_tokens,
+            )
+        )
 
         try:
             response = await self._model_provider.generate(command.request)

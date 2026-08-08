@@ -10,12 +10,14 @@ from ai_runtime.api.app import create_app
 from ai_runtime.api.dependencies import get_authenticate_api_key, get_create_response
 from ai_runtime.api.middleware.request_context import REQUEST_ID_HEADER
 from ai_runtime.application.auth.authenticate_api_key import AuthenticateApiKey
+from ai_runtime.application.policy.enforce_organization_policy import EnforceOrganizationPolicy
 from ai_runtime.application.responses.create_response import CreateResponse
 from ai_runtime.domain.api_key import ApiKey, ApiKeyStatus
 from ai_runtime.domain.generation import GenerationRequest
 from ai_runtime.domain.organization import Organization, OrganizationStatus
 from ai_runtime.infrastructure.security.api_key_crypto import Argon2ApiKeyHasher
 from tests.api.test_responses import FakeModelProvider, _request_body, _success_response
+from tests.application.policy.test_enforce_organization_policy import FakeOrganizationPolicyRepository
 from tests.application.responses.test_create_response import FakeCostEstimator, FakeIdempotencyStore, FakeRateLimiter, FakeUsageRepository
 
 _UNAUTHORIZED_MESSAGE = "Invalid or missing API key."
@@ -118,12 +120,15 @@ def _client(provider: FakeModelProvider, authenticate: AuthenticateApiKey) -> Te
     app = create_app()
 
     async def override_create_response() -> CreateResponse:
+        records = FakeUsageRepository()
+        policies = FakeOrganizationPolicyRepository()
         return CreateResponse(
             provider,
-            FakeUsageRepository(),
+            records,
             FakeCostEstimator(),
             FakeRateLimiter(),
             FakeIdempotencyStore(),
+            EnforceOrganizationPolicy(policies, records),
             provider_name="openai",
         )
 

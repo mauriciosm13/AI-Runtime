@@ -13,11 +13,14 @@ from ai_runtime.api.app import create_app
 from ai_runtime.api.dependencies import get_authenticated_principal, get_create_response
 from ai_runtime.api.middleware.request_context import REQUEST_ID_HEADER
 from ai_runtime.application.auth.authenticate_api_key import AuthenticatedPrincipal
+from ai_runtime.application.policy.enforce_organization_policy import EnforceOrganizationPolicy
 from ai_runtime.application.responses.create_response import CreateResponse
 from ai_runtime.domain.generation import GenerationRequest, GenerationResponse, Message, MessageRole, TokenUsage
+from ai_runtime.domain.organization_policy import ModelEntitlement, OrganizationPolicy
 from ai_runtime.ports.idempotency_store import IdempotencyCompleted, IdempotencyInProgress, IdempotencyMiss
 from ai_runtime.ports.rate_limiter import RateLimitDecision
 from ai_runtime.providers.openai.errors import ProviderError
+from tests.application.policy.test_enforce_organization_policy import FakeOrganizationPolicyRepository
 from tests.application.responses.test_create_response import FakeCostEstimator, FakeIdempotencyStore, FakeRateLimiter, FakeUsageRepository
 
 
@@ -70,25 +73,31 @@ def _client_with_provider(
     usage_records: FakeUsageRepository | None = None,
     rate_limiter: FakeRateLimiter | None = None,
     idempotency_store: FakeIdempotencyStore | None = None,
+    policy_repository: FakeOrganizationPolicyRepository | None = None,
+    principal: AuthenticatedPrincipal | None = None,
 ) -> TestClient:
     """Test client with provider + auth bypassed (generation contract focus)."""
     app = create_app()
     records = usage_records or FakeUsageRepository()
     limiter = rate_limiter or FakeRateLimiter()
     store = idempotency_store or FakeIdempotencyStore()
+    policies = policy_repository or FakeOrganizationPolicyRepository()
+    auth_principal = principal or _fake_principal()
 
     async def override_create_response() -> CreateResponse:
+        enforce_policy = EnforceOrganizationPolicy(policies, records)
         return CreateResponse(
             provider,
             records,
             FakeCostEstimator(),
             limiter,
             store,
+            enforce_policy,
             provider_name="openai",
         )
 
     async def override_principal() -> AuthenticatedPrincipal:
-        return _fake_principal()
+        return auth_principal
 
     app.dependency_overrides[get_create_response] = override_create_response
     app.dependency_overrides[get_authenticated_principal] = override_principal
@@ -124,12 +133,14 @@ def test_post_responses_records_usage_with_request_id() -> None:
     app = create_app()
 
     async def override_create_response() -> CreateResponse:
+        policies = FakeOrganizationPolicyRepository()
         return CreateResponse(
             provider,
             records,
             FakeCostEstimator(),
             FakeRateLimiter(),
             FakeIdempotencyStore(),
+            EnforceOrganizationPolicy(policies, records),
             provider_name="openai",
         )
 
@@ -394,6 +405,55 @@ def test_post_responses_returns_429_when_rate_limited() -> None:
         "error": {
             "code": "rate_limited",
             "message": "Rate limit exceeded.",
+            "request_id": request_id,
+        },
+    }
+    assert provider.requests == []
+
+
+def test_post_responses_returns_403_when_model_not_entitled() -> None:
+    """Model entitlement denials map to 403 with model_not_available code."""
+    principal = _fake_principal()
+    provider = FakeModelProvider(response=_success_response())
+    policies = FakeOrganizationPolicyRepository(
+        entitlements=(ModelEntitlement(organization_id=principal.organization_id, model="other-model"),),
+    )
+    client = _client_with_provider(provider, policy_repository=policies, principal=principal)
+    response = client.post("/v1/responses", json=_request_body())
+    assert response.status_code == 403
+    request_id = response.headers[REQUEST_ID_HEADER]
+    assert response.json() == {
+        "error": {
+            "code": "model_not_available",
+            "message": "The requested model is not available for this organization.",
+            "request_id": request_id,
+        },
+    }
+    assert provider.requests == []
+
+
+def test_post_responses_returns_429_when_monthly_quota_exhausted() -> None:
+    """Monthly quota denials map to 429 with quota_exceeded code and Retry-After."""
+    principal = _fake_principal()
+    provider = FakeModelProvider(response=_success_response())
+    policies = FakeOrganizationPolicyRepository(
+        policy=OrganizationPolicy(organization_id=principal.organization_id, monthly_token_limit=1000),
+    )
+    records = FakeUsageRepository(used_tokens=1000)
+    client = _client_with_provider(
+        provider,
+        usage_records=records,
+        policy_repository=policies,
+        principal=principal,
+    )
+    response = client.post("/v1/responses", json=_request_body())
+    assert response.status_code == 429
+    assert "Retry-After" in response.headers
+    request_id = response.headers[REQUEST_ID_HEADER]
+    assert response.json() == {
+        "error": {
+            "code": "quota_exceeded",
+            "message": "Monthly token quota exceeded.",
             "request_id": request_id,
         },
     }

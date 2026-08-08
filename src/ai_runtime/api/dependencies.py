@@ -10,12 +10,14 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from ai_runtime.api.errors import APIError, ErrorCode
 from ai_runtime.api.middleware.request_context import get_request_id
 from ai_runtime.application.auth.authenticate_api_key import AuthenticateApiKey, AuthenticatedPrincipal
+from ai_runtime.application.policy.enforce_organization_policy import EnforceOrganizationPolicy
 from ai_runtime.application.responses.create_response import CreateResponse
 from ai_runtime.config.settings import Settings
 from ai_runtime.domain.api_key import InvalidApiKeyCredentialsError
 from ai_runtime.domain.organization import OrganizationSuspendedError
 from ai_runtime.infrastructure.db import create_db_engine, create_session_factory
 from ai_runtime.infrastructure.db.repositories.api_key_repository import SqlAlchemyApiKeyRepository
+from ai_runtime.infrastructure.db.repositories.organization_policy_repository import SqlAlchemyOrganizationPolicyRepository
 from ai_runtime.infrastructure.db.repositories.organization_repository import SqlAlchemyOrganizationRepository
 from ai_runtime.infrastructure.db.repositories.usage_repository import SqlAlchemyUsageRepository
 from ai_runtime.infrastructure.pricing import StaticCostEstimator
@@ -99,9 +101,11 @@ async def get_create_response(request: Request, session: DbSessionDep) -> Create
         http_client=http_client,
         base_url=settings.openai_base_url,
     )
+    usage_repository = SqlAlchemyUsageRepository(session)
+    policy_repository = SqlAlchemyOrganizationPolicyRepository(session)
     return CreateResponse(
         provider,
-        SqlAlchemyUsageRepository(session),
+        usage_repository,
         StaticCostEstimator(),
         RedisRateLimiter(
             redis,
@@ -109,6 +113,7 @@ async def get_create_response(request: Request, session: DbSessionDep) -> Create
             burst=settings.rate_limit_burst,
         ),
         RedisIdempotencyStore(redis, ttl_seconds=settings.idempotency_ttl_seconds),
+        EnforceOrganizationPolicy(policy_repository, usage_repository),
         provider_name="openai",
     )
 

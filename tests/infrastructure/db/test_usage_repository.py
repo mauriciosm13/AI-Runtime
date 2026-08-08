@@ -152,3 +152,53 @@ def test_repository_allows_null_tokens_and_cost() -> None:
             assert stored.estimated_cost_usd is None
 
     asyncio.run(_with_clean_schema(scenario))
+
+
+def test_repository_sum_tokens_for_organization_in_period() -> None:
+    """Repository aggregates input and output tokens within a half-open period."""
+
+    async def scenario(session_factory: _SessionFactory) -> None:
+        organization, api_key = await _seed_org_and_key(session_factory)
+        in_period = datetime(2026, 8, 10, 12, 0, tzinfo=UTC)
+        out_period = datetime(2026, 7, 31, 23, 59, tzinfo=UTC)
+        async with session_factory() as session:
+            repository = SqlAlchemyUsageRepository(session)
+            await repository.add(
+                UsageRecord(
+                    id=uuid4(),
+                    request_id="req_in_period",
+                    organization_id=organization.id,
+                    api_key_id=api_key.id,
+                    provider="openai",
+                    model="gpt-4o-mini",
+                    input_tokens=100,
+                    output_tokens=40,
+                    estimated_cost_usd=Decimal("0.00003900"),
+                    created_at=in_period,
+                )
+            )
+            await repository.add(
+                UsageRecord(
+                    id=uuid4(),
+                    request_id="req_out_period",
+                    organization_id=organization.id,
+                    api_key_id=api_key.id,
+                    provider="openai",
+                    model="gpt-4o-mini",
+                    input_tokens=500,
+                    output_tokens=500,
+                    estimated_cost_usd=Decimal("0.00010000"),
+                    created_at=out_period,
+                )
+            )
+
+        async with session_factory() as session:
+            repository = SqlAlchemyUsageRepository(session)
+            total = await repository.sum_tokens_for_organization_in_period(
+                organization.id,
+                start=datetime(2026, 8, 1, 0, 0, tzinfo=UTC),
+                end=datetime(2026, 9, 1, 0, 0, tzinfo=UTC),
+            )
+            assert total == 140
+
+    asyncio.run(_with_clean_schema(scenario))

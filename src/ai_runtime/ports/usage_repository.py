@@ -1,5 +1,6 @@
 """Port for persisting and loading usage accounting records."""
 
+from datetime import datetime
 from typing import Protocol, runtime_checkable
 from uuid import UUID
 from ai_runtime.domain.usage import UsageRecord
@@ -22,4 +23,14 @@ class UsageRepository(Protocol):
 
         Used for reconciliation so retries can avoid double counting.
         """
+        ...
+
+    async def sum_tokens_for_organization_in_period(
+        self,
+        organization_id: UUID,
+        *,
+        start: datetime,
+        end: datetime,
+    ) -> int:
+        """Return total input+output tokens for ``organization_id`` in ``[start, end)``."""
         ...
