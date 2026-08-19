@@ -133,8 +133,8 @@ Pull requests and pushes to `main` run three GitHub Actions workflows:
 
 | Workflow | What it checks |
 |---|---|
-| [CI](.github/workflows/ci.yml) | Editable install (`pip install -e ".[dev]"`), `pytest` (Postgres 17 service), `ruff check`, `ruff format --check`, `mypy` |
-| [Docker](.github/workflows/docker.yml) | Multi-stage image build (`ai-runtime:ci`), no registry push |
+| [CI](.github/workflows/ci.yml) | Editable install (`pip install -e ".[dev]"`), unit tests (`pytest` with Postgres 17), `ruff check`, `ruff format --check`, `mypy` |
+| [Docker](.github/workflows/docker.yml) | Unit tests (`pytest`), then multi-stage image build (`ai-runtime:ci`), no registry push |
 | [Conventional Commits](.github/workflows/conventional-commits.yml) | Commit messages (`commitlint`) and PR titles (semantic pull request) |
 
 Local development and CI follow the same install flow. A failing check blocks merge until the suite is green.

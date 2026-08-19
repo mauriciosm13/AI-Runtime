@@ -51,7 +51,7 @@ jobs:
       - name: Verify editable import path
         run: python -c "import ai_runtime; from pathlib import Path; assert 'src' in Path(ai_runtime.__file__).parts"
 
-      - name: Run pytest
+      - name: Run unit tests
         env:
           AI_RUNTIME_DATABASE_URL: postgresql+asyncpg://ai_runtime:ai_runtime@localhost:5432/ai_runtime
         run: pytest
