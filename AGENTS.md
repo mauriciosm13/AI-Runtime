@@ -251,6 +251,8 @@ Every feature should update documentation whenever appropriate.
 
 The repository should always remain self-documenting.
 
+Git history follows [Conventional Commits](https://www.conventionalcommits.org/). Commit messages and pull-request titles are enforced in CI. See [docs/GIT_WORKFLOW.md](docs/GIT_WORKFLOW.md).
+
 ---
 
 # Decision Making

@@ -39,8 +39,9 @@ def _parse_idempotency_key(raw: str | None) -> str | None:
     "/responses",
     response_model=ResponseSchema,
     responses={
+        400: {"model": ErrorResponseSchema, "description": "Requested model is not in the routing catalog"},
         401: {"model": ErrorResponseSchema, "description": "Missing or invalid API key"},
-        403: {"model": ErrorResponseSchema, "description": "Organization suspended"},
+        403: {"model": ErrorResponseSchema, "description": "Organization suspended or model not entitled"},
         409: {"model": ErrorResponseSchema, "description": "Idempotency key already in progress"},
         422: {"model": ErrorResponseSchema, "description": "Invalid request"},
         429: {"model": ErrorResponseSchema, "description": "Organization rate limit exceeded"},

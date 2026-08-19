@@ -15,6 +15,7 @@ from ai_runtime.api.middleware.request_context import REQUEST_ID_HEADER
 from ai_runtime.application.auth.authenticate_api_key import AuthenticatedPrincipal
 from ai_runtime.application.policy.enforce_organization_policy import EnforceOrganizationPolicy
 from ai_runtime.application.responses.create_response import CreateResponse
+from ai_runtime.application.routing.model_router import ModelRouter
 from ai_runtime.domain.generation import GenerationRequest, GenerationResponse, Message, MessageRole, TokenUsage
 from ai_runtime.domain.organization_policy import ModelEntitlement, OrganizationPolicy
 from ai_runtime.ports.idempotency_store import IdempotencyCompleted, IdempotencyInProgress, IdempotencyMiss
@@ -87,13 +88,12 @@ def _client_with_provider(
     async def override_create_response() -> CreateResponse:
         enforce_policy = EnforceOrganizationPolicy(policies, records)
         return CreateResponse(
-            provider,
+            ModelRouter(providers={"openai": provider}),
             records,
             FakeCostEstimator(),
             limiter,
             store,
             enforce_policy,
-            provider_name="openai",
         )
 
     async def override_principal() -> AuthenticatedPrincipal:
@@ -135,13 +135,12 @@ def test_post_responses_records_usage_with_request_id() -> None:
     async def override_create_response() -> CreateResponse:
         policies = FakeOrganizationPolicyRepository()
         return CreateResponse(
-            provider,
+            ModelRouter(providers={"openai": provider}),
             records,
             FakeCostEstimator(),
             FakeRateLimiter(),
             FakeIdempotencyStore(),
             EnforceOrganizationPolicy(policies, records),
-            provider_name="openai",
         )
 
     async def override_principal() -> AuthenticatedPrincipal:
@@ -426,6 +425,23 @@ def test_post_responses_returns_403_when_model_not_entitled() -> None:
         "error": {
             "code": "model_not_available",
             "message": "The requested model is not available for this organization.",
+            "request_id": request_id,
+        },
+    }
+    assert provider.requests == []
+
+
+def test_post_responses_returns_400_when_model_unsupported() -> None:
+    """Unknown catalog models map to 400 with unsupported_model code."""
+    provider = FakeModelProvider(response=_success_response())
+    client = _client_with_provider(provider)
+    response = client.post("/v1/responses", json=_request_body(model="not-a-model"))
+    assert response.status_code == 400
+    request_id = response.headers[REQUEST_ID_HEADER]
+    assert response.json() == {
+        "error": {
+            "code": "unsupported_model",
+            "message": "The requested model is not supported.",
             "request_id": request_id,
         },
     }

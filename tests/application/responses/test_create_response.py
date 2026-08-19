@@ -8,10 +8,12 @@ from uuid import UUID, uuid4
 import pytest
 from ai_runtime.application.policy.enforce_organization_policy import EnforceOrganizationPolicy
 from ai_runtime.application.responses.create_response import CreateResponse, CreateResponseCommand
+from ai_runtime.application.routing.model_router import ModelRouter
 from ai_runtime.domain.generation import GenerationRequest, GenerationResponse, Message, MessageRole, TokenUsage
 from ai_runtime.domain.idempotency import IdempotencyConflictError
 from ai_runtime.domain.organization_policy import ModelEntitlement, ModelNotAvailableError, OrganizationPolicy, QuotaExceededError
 from ai_runtime.domain.rate_limit import RateLimitExceededError
+from ai_runtime.domain.routing import UnsupportedModelError
 from ai_runtime.domain.usage import UsageRecord
 from ai_runtime.ports.cost_estimator import CostEstimator
 from ai_runtime.ports.idempotency_store import IdempotencyBeginResult, IdempotencyCompleted, IdempotencyInProgress
@@ -171,6 +173,15 @@ def _command(*, request: GenerationRequest | None = None, idempotency_key: str |
     )
 
 
+def _model_router(
+    provider: FakeModelProvider,
+    *,
+    model: str = "fake-model",
+    provider_name: str = "openai",
+) -> ModelRouter:
+    return ModelRouter(providers={provider_name: provider}, catalog={model: provider_name})
+
+
 def _use_case(
     provider: FakeModelProvider,
     *,
@@ -179,6 +190,7 @@ def _use_case(
     rate_limiter: FakeRateLimiter | None = None,
     idempotency_store: FakeIdempotencyStore | None = None,
     policy_repository: FakeOrganizationPolicyRepository | None = None,
+    model_router: ModelRouter | None = None,
 ) -> tuple[
     CreateResponse,
     FakeUsageRepository,
@@ -194,13 +206,12 @@ def _use_case(
     policies = policy_repository or FakeOrganizationPolicyRepository()
     enforce_policy = EnforceOrganizationPolicy(policies, records)
     use_case = CreateResponse(
-        provider,
+        model_router or _model_router(provider),
         records,
         estimator,
         limiter,
         store,
         enforce_policy,
-        provider_name="openai",
     )
     return use_case, records, estimator, limiter, store, policies
 
@@ -394,7 +405,14 @@ def test_create_response_accepts_port_protocols() -> None:
     assert isinstance(idempotency_store, IdempotencyStore)
     assert isinstance(policy_repository, OrganizationPolicyRepository)
     assert isinstance(
-        CreateResponse(provider, usage_records, cost_estimator, rate_limiter, idempotency_store, enforce_policy),
+        CreateResponse(
+            _model_router(FakeModelProvider(response=_response())),
+            usage_records,
+            cost_estimator,
+            rate_limiter,
+            idempotency_store,
+            enforce_policy,
+        ),
         CreateResponse,
     )
 
@@ -444,6 +462,7 @@ def test_create_response_idempotent_replay_skips_policy_enforcement() -> None:
     """Completed idempotency replays return without re-checking policy or calling provider."""
     org_id = uuid4()
     stored = _response()
+    assert stored.usage is not None
     payload = json.dumps(
         {
             "id": stored.id,
@@ -477,3 +496,80 @@ def test_create_response_idempotent_replay_skips_policy_enforcement() -> None:
     assert result.id == stored.id
     assert provider.requests == []
     assert records.sum_calls == []
+
+
+def test_create_response_routes_to_catalog_provider() -> None:
+    """Usage and generation use the provider selected by the model catalog."""
+    openai = FakeModelProvider(response=_response())
+    anthropic = FakeModelProvider(response=_response())
+    router = ModelRouter(
+        providers={"openai": openai, "anthropic": anthropic},
+        catalog={"fake-model": "anthropic"},
+    )
+    use_case, records, estimator, _, _, _ = _use_case(openai, model_router=router)
+
+    asyncio.run(use_case.execute(_command()))
+
+    assert openai.requests == []
+    assert anthropic.requests == [_request()]
+    assert records.added[0].provider == "anthropic"
+    assert estimator.calls == [("anthropic", "fake-model", TokenUsage(input_tokens=10, output_tokens=5))]
+
+
+def test_create_response_raises_for_unsupported_model() -> None:
+    """Unknown catalog models fail before provider invocation."""
+    provider = FakeModelProvider(response=_response())
+    use_case, records, _, _, _, _ = _use_case(provider)
+    command = _command(
+        request=GenerationRequest(model="not-a-model", messages=(Message(role=MessageRole.USER, content="Hello"),)),
+    )
+
+    with pytest.raises(UnsupportedModelError) as exc_info:
+        asyncio.run(use_case.execute(command))
+
+    assert exc_info.value.model == "not-a-model"
+    assert provider.requests == []
+    assert records.added == []
+
+
+def test_create_response_releases_idempotency_lease_on_unsupported_model() -> None:
+    """Routing failures release the in-progress idempotency lease."""
+    store = FakeIdempotencyStore(IdempotencyMiss())
+    provider = FakeModelProvider(response=_response())
+    use_case, records, _, _, _, _ = _use_case(provider, idempotency_store=store)
+    command = _command(
+        request=GenerationRequest(model="not-a-model", messages=(Message(role=MessageRole.USER, content="Hello"),)),
+        idempotency_key="key-1",
+    )
+
+    with pytest.raises(UnsupportedModelError):
+        asyncio.run(use_case.execute(command))
+
+    assert records.added == []
+    assert store.completed == []
+    assert store.released == [(command.organization_id, "key-1")]
+
+
+def test_create_response_releases_idempotency_lease_on_policy_denial() -> None:
+    """Entitlement denials release the in-progress idempotency lease."""
+    org_id = uuid4()
+    store = FakeIdempotencyStore(IdempotencyMiss())
+    provider = FakeModelProvider(response=_response())
+    policies = FakeOrganizationPolicyRepository(
+        entitlements=(ModelEntitlement(organization_id=org_id, model="other-model"),),
+    )
+    use_case, records, _, _, _, _ = _use_case(provider, idempotency_store=store, policy_repository=policies)
+    command = CreateResponseCommand(
+        request=_request(),
+        request_id="req_test_123",
+        organization_id=org_id,
+        api_key_id=uuid4(),
+        idempotency_key="key-1",
+    )
+
+    with pytest.raises(ModelNotAvailableError):
+        asyncio.run(use_case.execute(command))
+
+    assert provider.requests == []
+    assert records.added == []
+    assert store.released == [(org_id, "key-1")]

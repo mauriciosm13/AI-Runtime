@@ -12,6 +12,7 @@ class ErrorCode(StrEnum):
     RATE_LIMITED = "rate_limited"
     QUOTA_EXCEEDED = "quota_exceeded"
     MODEL_NOT_AVAILABLE = "model_not_available"
+    UNSUPPORTED_MODEL = "unsupported_model"
     CONFLICT = "conflict"
     PROVIDER_ERROR = "provider_error"
     INTERNAL_ERROR = "internal_error"

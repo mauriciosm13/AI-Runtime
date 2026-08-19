@@ -12,6 +12,7 @@ from ai_runtime.api.middleware.request_context import REQUEST_ID_HEADER
 from ai_runtime.application.auth.authenticate_api_key import AuthenticateApiKey
 from ai_runtime.application.policy.enforce_organization_policy import EnforceOrganizationPolicy
 from ai_runtime.application.responses.create_response import CreateResponse
+from ai_runtime.application.routing.model_router import ModelRouter
 from ai_runtime.domain.api_key import ApiKey, ApiKeyStatus
 from ai_runtime.domain.generation import GenerationRequest
 from ai_runtime.domain.organization import Organization, OrganizationStatus
@@ -123,13 +124,12 @@ def _client(provider: FakeModelProvider, authenticate: AuthenticateApiKey) -> Te
         records = FakeUsageRepository()
         policies = FakeOrganizationPolicyRepository()
         return CreateResponse(
-            provider,
+            ModelRouter(providers={"openai": provider}),
             records,
             FakeCostEstimator(),
             FakeRateLimiter(),
             FakeIdempotencyStore(),
             EnforceOrganizationPolicy(policies, records),
-            provider_name="openai",
         )
 
     async def override_authenticate() -> AuthenticateApiKey:

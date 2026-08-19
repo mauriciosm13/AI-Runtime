@@ -12,6 +12,7 @@ from ai_runtime.api.middleware.request_context import get_request_id
 from ai_runtime.application.auth.authenticate_api_key import AuthenticateApiKey, AuthenticatedPrincipal
 from ai_runtime.application.policy.enforce_organization_policy import EnforceOrganizationPolicy
 from ai_runtime.application.responses.create_response import CreateResponse
+from ai_runtime.application.routing.model_router import ModelRouter
 from ai_runtime.config.settings import Settings
 from ai_runtime.domain.api_key import InvalidApiKeyCredentialsError
 from ai_runtime.domain.organization import OrganizationSuspendedError
@@ -92,11 +93,11 @@ AuthenticatedPrincipalDep = Annotated[AuthenticatedPrincipal, Depends(get_authen
 
 
 async def get_create_response(request: Request, session: DbSessionDep) -> CreateResponse:
-    """Build CreateResponse wired to OpenAI, Redis coordination, and usage persistence."""
+    """Build CreateResponse wired to the model router, Redis coordination, and usage persistence."""
     settings: Settings = request.app.state.settings
     http_client: httpx.AsyncClient = request.app.state.http_client
     redis: Redis = request.app.state.redis
-    provider = OpenAIModelProvider(
+    openai_provider = OpenAIModelProvider(
         api_key=settings.openai_api_key,
         http_client=http_client,
         base_url=settings.openai_base_url,
@@ -104,7 +105,7 @@ async def get_create_response(request: Request, session: DbSessionDep) -> Create
     usage_repository = SqlAlchemyUsageRepository(session)
     policy_repository = SqlAlchemyOrganizationPolicyRepository(session)
     return CreateResponse(
-        provider,
+        ModelRouter(providers={"openai": openai_provider}),
         usage_repository,
         StaticCostEstimator(),
         RedisRateLimiter(
@@ -114,7 +115,6 @@ async def get_create_response(request: Request, session: DbSessionDep) -> Create
         ),
         RedisIdempotencyStore(redis, ttl_seconds=settings.idempotency_ttl_seconds),
         EnforceOrganizationPolicy(policy_repository, usage_repository),
-        provider_name="openai",
     )
 
 
