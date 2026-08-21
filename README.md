@@ -31,7 +31,7 @@ Client
   <- Infrastructure / Providers / Telemetry
 ```
 
-See [the architecture guide](docs/architecture.md) for layer responsibilities and dependency rules. The initial architectural decision is recorded in [ADR 0001](docs/adr/0001-lightweight-clean-architecture.md).
+See [the architecture guide](docs/architecture.md) for layer responsibilities and dependency rules. Architectural decisions are recorded as ADRs under [docs/adr/](docs/adr/), including [ADR 0001](docs/adr/0001-lightweight-clean-architecture.md) and [ADR 0002](docs/adr/0002-static-model-catalog-routing.md).
 
 ## Foundation
 
@@ -43,7 +43,7 @@ The foundational system-design documents define the product boundary before runt
 
 ## Current status
 
-The project has a minimal FastAPI bootstrap with typed environment configuration and an operational liveness endpoint at `GET /health`. Provider-neutral generation contracts live in `domain/`, `ports/` defines external capability interfaces (`ModelProvider`, `OrganizationRepository`, `ApiKeyRepository`, `ApiKeyHasher`, `UsageRepository`, `CostEstimator`), and `application/` contains use cases (`CreateResponse`, `CreateOrganization`, `GetOrganization`, `CreateApiKey`, `RevokeApiKey`, `ListApiKeysForOrganization`, `AuthenticateApiKey`). The first concrete provider adapter is `OpenAIModelProvider` under `providers/openai/`, which calls OpenAI Chat Completions over `httpx`. `POST /v1/responses` requires `Authorization: Bearer airt_...`, runs `AuthenticateApiKey` (prefix lookup + argon2id verify, suspended-org rejection), then `CreateResponse` through HTTP with Pydantic schemas, dependency injection, and a shared `httpx.AsyncClient` managed by the application lifespan. After a successful provider response, `CreateResponse` persists a `UsageRecord` (tokens + estimated USD cost via `StaticCostEstimator`) keyed by `request_id`. `GET /health` stays unauthenticated. Client-facing errors use a standardized provider-neutral envelope with stable error codes (`unauthorized`, `forbidden`, …) and a per-request correlation identifier (`X-Request-ID`). Structured JSON request logs record request start and completion with the same identifier and never log Authorization headers or secrets. Persistence wiring uses SQLAlchemy 2 async with asyncpg: the application lifespan owns the engine and session factory, and FastAPI can inject request-scoped `AsyncSession` values. Organization tenancy is modeled in `domain/organization.py`, persisted through `SqlAlchemyOrganizationRepository` and the `organizations` table (Alembic revision `0002_organizations`). API keys are modeled in `domain/api_key.py`, hashed at rest with argon2id (`Argon2ApiKeyHasher`), persisted through `SqlAlchemyApiKeyRepository` and the `api_keys` table (Alembic revision `0003_api_keys`). Usage accounting is modeled in `domain/usage.py` and persisted through `SqlAlchemyUsageRepository` and the `usage_records` table (Alembic revision `0004_usage_records`). Create returns the plaintext `airt_...` secret once; only prefix + hash are stored. Operator HTTP routes for organizations/API keys, usage reporting/quotas, and provider routing are not implemented yet.
+The project has a minimal FastAPI bootstrap with typed environment configuration and an operational liveness endpoint at `GET /health`. Provider-neutral generation contracts live in `domain/`, `ports/` defines external capability interfaces (`ModelProvider`, `OrganizationRepository`, `ApiKeyRepository`, `ApiKeyHasher`, `UsageRepository`, `CostEstimator`), and `application/` contains use cases (`CreateResponse`, `ModelRouter`, `CreateOrganization`, `GetOrganization`, `CreateApiKey`, `RevokeApiKey`, `ListApiKeysForOrganization`, `AuthenticateApiKey`). The first concrete provider adapter is `OpenAIModelProvider` under `providers/openai/`, which calls OpenAI Chat Completions over `httpx`. `CreateResponse` resolves the requested model through `ModelRouter` against `DEFAULT_MODEL_CATALOG` (`gpt-4o` and `gpt-4o-mini` → `openai`) before calling a provider. `POST /v1/responses` requires `Authorization: Bearer airt_...`, runs `AuthenticateApiKey` (prefix lookup + argon2id verify, suspended-org rejection), then `CreateResponse` through HTTP with Pydantic schemas, dependency injection, and a shared `httpx.AsyncClient` managed by the application lifespan. After a successful provider response, `CreateResponse` persists a `UsageRecord` (tokens + estimated USD cost via `StaticCostEstimator`) keyed by `request_id`, with `provider` taken from the resolved route. `GET /health` stays unauthenticated. Client-facing errors use a standardized provider-neutral envelope with stable error codes (`unauthorized`, `forbidden`, `unsupported_model`, …) and a per-request correlation identifier (`X-Request-ID`). Structured JSON request logs record request start and completion with the same identifier and never log Authorization headers or secrets. Persistence wiring uses SQLAlchemy 2 async with asyncpg: the application lifespan owns the engine and session factory, and FastAPI can inject request-scoped `AsyncSession` values. Organization tenancy is modeled in `domain/organization.py`, persisted through `SqlAlchemyOrganizationRepository` and the `organizations` table (Alembic revision `0002_organizations`). API keys are modeled in `domain/api_key.py`, hashed at rest with argon2id (`Argon2ApiKeyHasher`), persisted through `SqlAlchemyApiKeyRepository` and the `api_keys` table (Alembic revision `0003_api_keys`). Usage accounting is modeled in `domain/usage.py` and persisted through `SqlAlchemyUsageRepository` and the `usage_records` table (Alembic revision `0004_usage_records`). Create returns the plaintext `airt_...` secret once; only prefix + hash are stored. Operator HTTP routes for organizations/API keys, usage reporting/quotas, and persisted routing policies are not implemented yet.
 
 ## Repository layout
 
@@ -51,9 +51,9 @@ The project has a minimal FastAPI bootstrap with typed environment configuration
 src/
   ai_runtime/          # distributable application package
     api/               # FastAPI application factory, routes, schemas, dependencies, middleware
-    application/       # use cases (responses, organizations, api_keys, auth)
+    application/       # use cases (responses, routing, organizations, api_keys, auth)
     config/            # typed Settings loaded from the environment
-    domain/            # provider-neutral generation, organization, API-key, and usage contracts
+    domain/            # provider-neutral generation, routing catalog, organization, API-key, and usage contracts
     ports/             # interfaces (ModelProvider, repositories, ApiKeyHasher, CostEstimator)
     infrastructure/    # SQLAlchemy, ORM models, repositories, argon2id hasher, static pricing
     providers/         # concrete model-provider adapters (OpenAI via httpx)
@@ -61,6 +61,8 @@ src/
 alembic/               # Alembic env and version scripts
 alembic.ini            # Alembic configuration (URL from Settings)
 tests/                 # test suite
+.github/               # GitHub Actions (quality, Docker build, Conventional Commits)
+.commitlintrc.yaml     # commitlint rules for Conventional Commits
 Dockerfile             # multi-stage image for local execution (includes Alembic)
 compose.yaml           # Docker Compose stack (Postgres + migrate + API)
 .env.example           # environment template for Compose runs
@@ -127,9 +129,17 @@ The printed path should include `src/ai_runtime/`.
 
 ## Continuous integration
 
-Pull requests and pushes to `main` automatically run the same quality checks through GitHub Actions: editable install (`pip install -e ".[dev]"`), `pytest`, `ruff check`, `ruff format --check`, and `mypy`. Local development and CI follow the same install flow. A failing check blocks merge until the suite is green.
+Pull requests and pushes to `main` run three GitHub Actions workflows:
 
-Docker and production images use a non-editable install (`pip install .`) because they ship a fixed artifact rather than a live source tree.
+| Workflow | What it checks |
+|---|---|
+| [CI](.github/workflows/ci.yml) | Editable install (`pip install -e ".[dev]"`), unit tests (`pytest` with Postgres 17), `ruff check`, `ruff format --check`, `mypy` |
+| [Docker](.github/workflows/docker.yml) | Unit tests (`pytest`), then multi-stage image build (`ai-runtime:ci`), no registry push |
+| [Conventional Commits](.github/workflows/conventional-commits.yml) | Commit messages (`commitlint`) and PR titles (semantic pull request) |
+
+Local development and CI follow the same install flow. A failing check blocks merge until the suite is green.
+
+Commit and PR title format is documented in [the git workflow](docs/GIT_WORKFLOW.md). Docker and production images use a non-editable install (`pip install .`) because they ship a fixed artifact rather than a live source tree.
 
 ## Running the API locally
 
@@ -268,4 +278,4 @@ While the stack is running, the same endpoints documented above are available at
 
 ## Contributing
 
-Architecture and implementation changes should be scoped to a small, reviewable task and include the relevant tests and documentation. Consult [AGENTS.md](AGENTS.md) for repository engineering standards.
+Architecture and implementation changes should be scoped to a small, reviewable task and include the relevant tests and documentation. Consult [AGENTS.md](AGENTS.md) for repository engineering standards and [the git workflow](docs/GIT_WORKFLOW.md) for Conventional Commits.

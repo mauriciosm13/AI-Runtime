@@ -8,6 +8,7 @@ import pytest
 
 from ai_runtime.application.policy.enforce_organization_policy import EnforceOrganizationPolicy, EnforceOrganizationPolicyCommand
 from ai_runtime.domain.organization_policy import ModelEntitlement, ModelNotAvailableError, OrganizationPolicy, QuotaExceededError
+from ai_runtime.domain.usage import UsageRecord
 
 
 class FakeOrganizationPolicyRepository:
@@ -34,7 +35,7 @@ class FakeUsageRepository:
         self.used_tokens = used_tokens
         self.sum_calls: list[tuple[UUID, datetime, datetime]] = []
 
-    async def add(self, usage_record: object) -> object:
+    async def add(self, usage_record: UsageRecord) -> UsageRecord:
         raise NotImplementedError
 
     async def get_by_id(self, usage_record_id: UUID) -> None:

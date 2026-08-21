@@ -10,6 +10,7 @@ from ai_runtime.domain.generation import DomainValidationError
 from ai_runtime.domain.idempotency import IdempotencyConflictError
 from ai_runtime.domain.organization_policy import ModelNotAvailableError, QuotaExceededError
 from ai_runtime.domain.rate_limit import RateLimitExceededError
+from ai_runtime.domain.routing import UnsupportedModelError
 from ai_runtime.providers.openai.errors import ProviderError
 
 
@@ -115,6 +116,17 @@ async def model_not_available_handler(request: Request, err: Exception) -> JSONR
     )
 
 
+async def unsupported_model_handler(request: Request, err: Exception) -> JSONResponse:
+    """Normalize unknown catalog models to HTTP 400."""
+    assert isinstance(err, UnsupportedModelError)
+    return _error_response(
+        status_code=400,
+        code=ErrorCode.UNSUPPORTED_MODEL,
+        message=str(err),
+        request_id=get_request_id(request),
+    )
+
+
 async def idempotency_conflict_handler(request: Request, err: Exception) -> JSONResponse:
     """Normalize in-flight idempotency conflicts to HTTP 409."""
     assert isinstance(err, IdempotencyConflictError)
@@ -155,6 +167,7 @@ def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(RateLimitExceededError, rate_limit_exceeded_handler)
     app.add_exception_handler(QuotaExceededError, quota_exceeded_handler)
     app.add_exception_handler(ModelNotAvailableError, model_not_available_handler)
+    app.add_exception_handler(UnsupportedModelError, unsupported_model_handler)
     app.add_exception_handler(IdempotencyConflictError, idempotency_conflict_handler)
     app.add_exception_handler(ProviderError, provider_error_handler)
     app.add_exception_handler(Exception, unhandled_error_handler)

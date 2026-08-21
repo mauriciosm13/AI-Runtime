@@ -33,7 +33,7 @@ The API layer owns FastAPI routes, HTTP request and response schemas, authentica
 
 Request correlation is handled by middleware in `api/middleware/request_context.py`. Each HTTP request receives a `request_id` stored on `request.state`, echoed in the `X-Request-ID` response header, included in error envelopes, and emitted in structured request logs. Routes and exception handlers do not generate correlation identifiers inline.
 
-`POST /v1/responses` requires bearer API-key authentication before generation. The API layer extracts `Authorization: Bearer airt_...`, invokes `AuthenticateApiKey`, and injects an `AuthenticatedPrincipal` (no plaintext secret or hash). Missing or invalid credentials map to `401 Unauthorized`; suspended organizations map to `403 Forbidden`. After auth, the route validates a JSON body with Pydantic schemas, maps it to `CreateResponseCommand` (generation request plus `request_id`, `organization_id`, and `api_key_id`), invokes `CreateResponse`, and serializes `GenerationResponse`. Provider failures map to `502 Bad Gateway`; validation failures map to `422 Unprocessable Entity`. Errors use the standardized envelope in `api/schemas/errors.py` via `api/exception_handlers.py`. The composition root wires `OpenAIModelProvider`, SQLAlchemy repositories (including usage), `StaticCostEstimator`, and `Argon2ApiKeyHasher` through FastAPI dependencies and stores a shared `httpx.AsyncClient` on the application lifespan.
+`POST /v1/responses` requires bearer API-key authentication before generation. The API layer extracts `Authorization: Bearer airt_...`, invokes `AuthenticateApiKey`, and injects an `AuthenticatedPrincipal` (no plaintext secret or hash). Missing or invalid credentials map to `401 Unauthorized`; suspended organizations map to `403 Forbidden`. After auth, the route validates a JSON body with Pydantic schemas, maps it to `CreateResponseCommand` (generation request plus `request_id`, `organization_id`, and `api_key_id`), invokes `CreateResponse`, and serializes `GenerationResponse`. Provider failures map to `502 Bad Gateway`; validation failures map to `422 Unprocessable Entity`. Errors use the standardized envelope in `api/schemas/errors.py` via `api/exception_handlers.py`. The composition root wires `ModelRouter` (OpenAI adapter registered as `"openai"`), SQLAlchemy repositories (including usage), `StaticCostEstimator`, and `Argon2ApiKeyHasher` through FastAPI dependencies and stores a shared `httpx.AsyncClient` on the application lifespan. Unknown catalog models map to `400 Bad Request` (`unsupported_model`); organization entitlement denials map to `403 Forbidden` (`model_not_available`).
 
 ### Application
 
@@ -41,7 +41,9 @@ The application layer implements use cases. It coordinates domain policies with 
 
 Application code expresses workflows; it does not contain HTTP-specific concerns or direct SQLAlchemy, Redis, AWS, or provider-SDK calls.
 
-`CreateResponse` in `application/responses/` receives a `CreateResponseCommand`, delegates generation to an injected `ModelProvider`, estimates cost through `CostEstimator`, persists a `UsageRecord` through `UsageRepository` after a successful provider response, and returns the `GenerationResponse`. Prompt/response content is not stored. It is exposed through `POST /v1/responses` in the API layer.
+`CreateResponse` in `application/responses/` receives a `CreateResponseCommand`, resolves the requested model through `ModelRouter`, delegates generation to the selected `ModelProvider`, estimates cost through `CostEstimator`, persists a `UsageRecord` through `UsageRepository` after a successful provider response, and returns the `GenerationResponse`. Prompt/response content is not stored. It is exposed through `POST /v1/responses` in the API layer.
+
+`ModelRouter` in `application/routing/` binds the domain catalog (`model → provider`) to registered `ModelProvider` adapters. It does not call providers, enforce organization policy, or persist usage. The initial catalog is `DEFAULT_MODEL_CATALOG` in `domain/routing.py`.
 
 `CreateOrganization` and `GetOrganization` in `application/organizations/` create and load tenants through an injected `OrganizationRepository`. `CreateApiKey`, `RevokeApiKey`, and `ListApiKeysForOrganization` in `application/api_keys/` issue, revoke, and list credentials through injected `ApiKeyRepository`, `OrganizationRepository`, and `ApiKeyHasher` ports. They are not yet exposed over HTTP; operator routes remain later work. `AuthenticateApiKey` in `application/auth/` validates a plaintext bearer secret via prefix lookup + `ApiKeyHasher.verify_secret`, rejects revoked keys and missing organizations with a generic credential failure, rejects suspended organizations explicitly, and returns an `AuthenticatedPrincipal` for request context.
 
@@ -51,7 +53,7 @@ The domain layer contains provider-agnostic business concepts and rules: model c
 
 A domain rule belongs here when it would still apply if FastAPI, PostgreSQL, Redis, and every provider were replaced.
 
-Domain contracts under `domain/` include provider-neutral text generation (`MessageRole`, `Message`, `GenerationRequest`, `TokenUsage`, `GenerationResponse`), organization tenancy (`Organization`, `OrganizationStatus`, slug/name invariants, and organization lifecycle errors), API-key credentials (`ApiKey`, `ApiKeyMetadata`, `ApiKeyStatus`, revoke invariants, and key lifecycle errors), and usage accounting (`UsageRecord`, `ModelPricing`, `estimate_cost_usd`). These types do not know about HTTP, SDKs, or SQLAlchemy. Plaintext API-key secrets are never part of the persisted domain entity.
+Domain contracts under `domain/` include provider-neutral text generation (`MessageRole`, `Message`, `GenerationRequest`, `TokenUsage`, `GenerationResponse`), model routing (`ModelRoute`, `DEFAULT_MODEL_CATALOG`, `resolve_model_route`, `UnsupportedModelError`), organization tenancy (`Organization`, `OrganizationStatus`, slug/name invariants, and organization lifecycle errors), API-key credentials (`ApiKey`, `ApiKeyMetadata`, `ApiKeyStatus`, revoke invariants, and key lifecycle errors), and usage accounting (`UsageRecord`, `ModelPricing`, `estimate_cost_usd`). These types do not know about HTTP, SDKs, or SQLAlchemy. Plaintext API-key secrets are never part of the persisted domain entity.
 
 ### Ports
 
@@ -69,7 +71,7 @@ Ports prevent use cases from depending on concrete adapters. They should be intr
 
 Provider adapters implement model-invocation ports for OpenAI, Anthropic, Gemini, and future providers. They translate AI Runtime's provider-neutral requests and responses to each vendor's SDK or HTTP API.
 
-The first concrete adapter is `OpenAIModelProvider` under `providers/openai/`. It implements `ModelProvider` by mapping `GenerationRequest` / `GenerationResponse` to the OpenAI Chat Completions HTTP API using `httpx`. It does not decide routing, authorization, retries, failover, streaming, or tool calling.
+The first concrete adapter is `OpenAIModelProvider` under `providers/openai/`. It implements `ModelProvider` by mapping `GenerationRequest` / `GenerationResponse` to the OpenAI Chat Completions HTTP API using `httpx`. It does not decide routing, authorization, retries, failover, streaming, or tool calling. The composition root registers it with `ModelRouter` under the name `"openai"`.
 
 Providers do not decide which model to select, whether an organization is authorized, or how usage is persisted.
 
@@ -133,4 +135,4 @@ As code is added, the project should enforce these rules with focused architectu
 
 ## Decision records
 
-Significant, durable decisions are recorded as Architecture Decision Records (ADRs) under `docs/adr/`. An ADR captures the context, decision, consequences, and alternatives at the time of the choice.
+Significant, durable decisions are recorded as Architecture Decision Records (ADRs) under `docs/adr/`. An ADR captures the context, decision, consequences, and alternatives at the time of the choice. Current records: [ADR 0001](adr/0001-lightweight-clean-architecture.md) (ports and adapters) and [ADR 0002](adr/0002-static-model-catalog-routing.md) (static model catalog).

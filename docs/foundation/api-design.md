@@ -56,13 +56,16 @@ When Redis is unavailable, rate limiting fails open: the request proceeds and a 
 
 ## Organization access and quotas
 
-Before a provider call, `CreateResponse` enforces organization policy stored in PostgreSQL:
+Before a provider call, `CreateResponse` resolves the requested model through `ModelRouter`, then enforces organization policy stored in PostgreSQL:
 
 - **Model entitlements** — when an organization has configured entitlements, only listed models are allowed. An empty entitlement set allows all models (backward compatible default).
 - **Monthly token quota** — when `organization_policies.monthly_token_limit` is set, the runtime sums `input_tokens + output_tokens` from `usage_records` for the current UTC calendar month and rejects requests that would meet or exceed the limit.
 
+Unknown models are rejected by the routing catalog before entitlement and quota checks.
+
 | Condition | HTTP | `error.code` | Headers |
 | --- | --- | --- | --- |
+| Requested model not in the routing catalog | `400` | `unsupported_model` | — |
 | Requested model not entitled for organization | `403` | `model_not_available` | — |
 | Monthly token quota exhausted | `429` | `quota_exceeded` | `Retry-After` (seconds until next UTC month) |
 
@@ -87,6 +90,8 @@ When Redis is unavailable, idempotency fails open: the request proceeds without 
 ## Unified response resource
 
 `POST /v1/responses` is the planned provider-neutral model-invocation endpoint. It is intentionally a resource-oriented endpoint rather than a provider-specific proxy.
+
+Clients send a catalog model name (`model`). The runtime selects the provider through `ModelRouter`; clients do not name a vendor. The initial catalog maps `gpt-4o` and `gpt-4o-mini` to OpenAI.
 
 The detailed request and response schema is deferred until the first provider capability is selected. Its minimum contract will include:
 

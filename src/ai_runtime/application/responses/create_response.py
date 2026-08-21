@@ -5,13 +5,13 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 from ai_runtime.application.policy.enforce_organization_policy import EnforceOrganizationPolicy, EnforceOrganizationPolicyCommand
+from ai_runtime.application.routing.model_router import ModelRouter
 from ai_runtime.domain.generation import GenerationRequest, GenerationResponse, Message, MessageRole, TokenUsage
 from ai_runtime.domain.idempotency import IdempotencyConflictError
 from ai_runtime.domain.rate_limit import RateLimitExceededError
 from ai_runtime.domain.usage import UsageRecord
 from ai_runtime.ports.cost_estimator import CostEstimator
 from ai_runtime.ports.idempotency_store import IdempotencyCompleted, IdempotencyInProgress, IdempotencyMiss, IdempotencyStore
-from ai_runtime.ports.model_provider import ModelProvider
 from ai_runtime.ports.rate_limiter import RateLimiter
 from ai_runtime.ports.usage_repository import UsageRepository
 
@@ -59,33 +59,30 @@ def _deserialize_response(payload: str) -> GenerationResponse:
 
 
 class CreateResponse:
-    """Coordinate rate limits, idempotency, generation, and usage accounting."""
+    """Coordinate rate limits, idempotency, routing, generation, and usage accounting."""
 
     def __init__(
         self,
-        model_provider: ModelProvider,
+        model_router: ModelRouter,
         usage_records: UsageRepository,
         cost_estimator: CostEstimator,
         rate_limiter: RateLimiter,
         idempotency_store: IdempotencyStore,
         enforce_organization_policy: EnforceOrganizationPolicy,
-        *,
-        provider_name: str = "openai",
     ) -> None:
-        self._model_provider = model_provider
+        self._model_router = model_router
         self._usage_records = usage_records
         self._cost_estimator = cost_estimator
         self._rate_limiter = rate_limiter
         self._idempotency_store = idempotency_store
         self._enforce_organization_policy = enforce_organization_policy
-        self._provider_name = provider_name
 
     async def execute(self, command: CreateResponseCommand) -> GenerationResponse:
-        """Enforce limits, generate a response, record usage, then return the result.
+        """Enforce limits, route the model, generate a response, record usage, then return the result.
 
         Provider invocation is outside the usage persistence transaction. Usage
         is written only after a successful provider response. Idempotent replays
-        skip provider invocation and usage persistence.
+        skip routing, provider invocation, and usage persistence.
         """
         decision = await self._rate_limiter.consume(command.organization_id)
         if not decision.allowed:
@@ -102,18 +99,18 @@ class CreateResponse:
             assert isinstance(begin_result, IdempotencyMiss)
             claimed_idempotency = True
 
-        await self._enforce_organization_policy.execute(
-            EnforceOrganizationPolicyCommand(
-                organization_id=command.organization_id,
-                requested_model=command.request.model,
-                max_output_tokens=command.request.max_output_tokens,
-            )
-        )
-
         try:
-            response = await self._model_provider.generate(command.request)
+            resolved = self._model_router.resolve(command.request.model)
+            await self._enforce_organization_policy.execute(
+                EnforceOrganizationPolicyCommand(
+                    organization_id=command.organization_id,
+                    requested_model=command.request.model,
+                    max_output_tokens=command.request.max_output_tokens,
+                )
+            )
+            response = await resolved.provider.generate(command.request)
             estimated_cost = self._cost_estimator.estimate(
-                provider=self._provider_name,
+                provider=resolved.provider_name,
                 model=response.model,
                 usage=response.usage,
             )
@@ -125,7 +122,7 @@ class CreateResponse:
                     request_id=command.request_id,
                     organization_id=command.organization_id,
                     api_key_id=command.api_key_id,
-                    provider=self._provider_name,
+                    provider=resolved.provider_name,
                     model=response.model,
                     input_tokens=input_tokens,
                     output_tokens=output_tokens,
