@@ -16,8 +16,16 @@ _OPENAI_PRICING: dict[str, ModelPricing] = {
     ),
 }
 
+_ANTHROPIC_PRICING: dict[str, ModelPricing] = {
+    "claude-3-5-sonnet-20241022": ModelPricing(
+        input_usd_per_1m_tokens=Decimal("3.00"),
+        output_usd_per_1m_tokens=Decimal("15.00"),
+    ),
+}
+
 _PROVIDER_PRICING: dict[str, dict[str, ModelPricing]] = {
     "openai": _OPENAI_PRICING,
+    "anthropic": _ANTHROPIC_PRICING,
 }
 
 

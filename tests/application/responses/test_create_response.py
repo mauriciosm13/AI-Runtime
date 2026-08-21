@@ -8,7 +8,7 @@ from uuid import UUID, uuid4
 import pytest
 from ai_runtime.application.policy.enforce_organization_policy import EnforceOrganizationPolicy
 from ai_runtime.application.responses.create_response import CreateResponse, CreateResponseCommand
-from ai_runtime.application.routing.model_router import ModelRouter
+from ai_runtime.application.routing.model_router import ModelRouter, ProviderNotRegisteredError
 from ai_runtime.domain.generation import GenerationRequest, GenerationResponse, Message, MessageRole, TokenUsage
 from ai_runtime.domain.idempotency import IdempotencyConflictError
 from ai_runtime.domain.organization_policy import ModelEntitlement, ModelNotAvailableError, OrganizationPolicy, QuotaExceededError
@@ -514,6 +514,20 @@ def test_create_response_routes_to_catalog_provider() -> None:
     assert anthropic.requests == [_request()]
     assert records.added[0].provider == "anthropic"
     assert estimator.calls == [("anthropic", "fake-model", TokenUsage(input_tokens=10, output_tokens=5))]
+
+
+def test_create_response_raises_when_provider_not_registered() -> None:
+    """Catalog models whose provider adapter is missing fail before generation."""
+    provider = FakeModelProvider(response=_response())
+    router = ModelRouter(providers={}, catalog={"fake-model": "anthropic"})
+    use_case, records, _, _, _, _ = _use_case(provider, model_router=router)
+
+    with pytest.raises(ProviderNotRegisteredError) as exc_info:
+        asyncio.run(use_case.execute(_command()))
+
+    assert exc_info.value.provider == "anthropic"
+    assert provider.requests == []
+    assert records.added == []
 
 
 def test_create_response_raises_for_unsupported_model() -> None:

@@ -1,8 +1,8 @@
 """Exceptions raised by OpenAI provider adapters."""
 
+from ai_runtime.providers.errors import ProviderError
 
-class ProviderError(Exception):
-    """Base error for provider adapter failures."""
+__all__ = ["OpenAIProviderError", "ProviderError"]
 
 
 class OpenAIProviderError(ProviderError):
