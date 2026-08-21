@@ -16,6 +16,17 @@ def test_estimates_known_openai_model() -> None:
     assert cost == Decimal("0.75000000")
 
 
+def test_estimates_known_anthropic_model() -> None:
+    """Known Anthropic model prices produce a quantized USD estimate."""
+    estimator = StaticCostEstimator()
+    cost = estimator.estimate(
+        provider="anthropic",
+        model="claude-3-5-sonnet-20241022",
+        usage=TokenUsage(input_tokens=1_000_000, output_tokens=1_000_000),
+    )
+    assert cost == Decimal("18.00000000")
+
+
 def test_returns_none_for_unknown_model_or_missing_usage() -> None:
     """Unknown models and missing usage yield None rather than inventing cost."""
     estimator = StaticCostEstimator()

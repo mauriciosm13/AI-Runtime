@@ -37,3 +37,4 @@ def test_model_route_rejects_blank_fields() -> None:
 def test_default_catalog_covers_priced_openai_models() -> None:
     assert DEFAULT_MODEL_CATALOG["gpt-4o"] == "openai"
     assert DEFAULT_MODEL_CATALOG["gpt-4o-mini"] == "openai"
+    assert DEFAULT_MODEL_CATALOG["claude-3-5-sonnet-20241022"] == "anthropic"

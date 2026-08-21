@@ -35,6 +35,7 @@ DEFAULT_MODEL_CATALOG: Mapping[str, str] = MappingProxyType(
     {
         "gpt-4o-mini": "openai",
         "gpt-4o": "openai",
+        "claude-3-5-sonnet-20241022": "anthropic",
     }
 )
 

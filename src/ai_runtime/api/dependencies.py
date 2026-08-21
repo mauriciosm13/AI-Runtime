@@ -1,6 +1,6 @@
 """FastAPI dependency providers for application use cases."""
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 from typing import Annotated
 import httpx
@@ -24,10 +24,35 @@ from ai_runtime.infrastructure.db.repositories.usage_repository import SqlAlchem
 from ai_runtime.infrastructure.pricing import StaticCostEstimator
 from ai_runtime.infrastructure.redis import RedisIdempotencyStore, RedisRateLimiter, create_redis_client
 from ai_runtime.infrastructure.security.api_key_crypto import Argon2ApiKeyHasher
+from ai_runtime.ports.model_provider import ModelProvider
+from ai_runtime.providers.anthropic.adapter import AnthropicModelProvider
 from ai_runtime.providers.openai.adapter import OpenAIModelProvider
 
 _UNAUTHORIZED_MESSAGE = "Invalid or missing API key."
 _FORBIDDEN_SUSPENDED_MESSAGE = "Organization is suspended."
+
+
+def build_model_providers(settings: Settings, http_client: httpx.AsyncClient) -> Mapping[str, ModelProvider]:
+    """Register provider adapters present in this deployment.
+
+    Anthropic is omitted when ``AI_RUNTIME_ANTHROPIC_API_KEY`` is blank so
+    OpenAI-only deploys stay valid. A catalog model whose provider is missing
+    then fails with ``ProviderNotRegisteredError`` (HTTP 503).
+    """
+    providers: dict[str, ModelProvider] = {
+        "openai": OpenAIModelProvider(
+            api_key=settings.openai_api_key,
+            http_client=http_client,
+            base_url=settings.openai_base_url,
+        ),
+    }
+    if settings.anthropic_api_key.strip():
+        providers["anthropic"] = AnthropicModelProvider(
+            api_key=settings.anthropic_api_key,
+            http_client=http_client,
+            base_url=settings.anthropic_base_url,
+        )
+    return providers
 
 
 def get_settings(request: Request) -> Settings:
@@ -97,15 +122,10 @@ async def get_create_response(request: Request, session: DbSessionDep) -> Create
     settings: Settings = request.app.state.settings
     http_client: httpx.AsyncClient = request.app.state.http_client
     redis: Redis = request.app.state.redis
-    openai_provider = OpenAIModelProvider(
-        api_key=settings.openai_api_key,
-        http_client=http_client,
-        base_url=settings.openai_base_url,
-    )
     usage_repository = SqlAlchemyUsageRepository(session)
     policy_repository = SqlAlchemyOrganizationPolicyRepository(session)
     return CreateResponse(
-        ModelRouter(providers={"openai": openai_provider}),
+        ModelRouter(providers=build_model_providers(settings, http_client)),
         usage_repository,
         StaticCostEstimator(),
         RedisRateLimiter(
