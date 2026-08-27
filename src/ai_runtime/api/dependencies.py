@@ -11,6 +11,7 @@ from ai_runtime.api.errors import APIError, ErrorCode
 from ai_runtime.api.middleware.request_context import get_request_id
 from ai_runtime.application.auth.authenticate_api_key import AuthenticateApiKey, AuthenticatedPrincipal
 from ai_runtime.application.policy.enforce_organization_policy import EnforceOrganizationPolicy
+from ai_runtime.application.resilience.provider_executor import ProviderExecutor
 from ai_runtime.application.responses.create_response import CreateResponse
 from ai_runtime.application.routing.model_router import ModelRouter
 from ai_runtime.config.settings import Settings
@@ -53,6 +54,16 @@ def build_model_providers(settings: Settings, http_client: httpx.AsyncClient) ->
             base_url=settings.anthropic_base_url,
         )
     return providers
+
+
+def build_provider_executor(settings: Settings, http_client: httpx.AsyncClient) -> ProviderExecutor:
+    """Build a provider executor with retries and optional cross-provider failover."""
+    return ProviderExecutor(
+        ModelRouter(providers=build_model_providers(settings, http_client)),
+        max_retries=settings.provider_max_retries,
+        retry_base_delay_seconds=settings.provider_retry_base_delay_seconds,
+        failover_enabled=settings.provider_failover_enabled,
+    )
 
 
 def get_settings(request: Request) -> Settings:
@@ -125,7 +136,7 @@ async def get_create_response(request: Request, session: DbSessionDep) -> Create
     usage_repository = SqlAlchemyUsageRepository(session)
     policy_repository = SqlAlchemyOrganizationPolicyRepository(session)
     return CreateResponse(
-        ModelRouter(providers=build_model_providers(settings, http_client)),
+        build_provider_executor(settings, http_client),
         usage_repository,
         StaticCostEstimator(),
         RedisRateLimiter(

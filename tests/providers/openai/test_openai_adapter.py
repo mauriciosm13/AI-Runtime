@@ -159,9 +159,12 @@ def test_authorization_bearer_header_is_sent() -> None:
     assert captured["content_type"] == "application/json"
 
 
-@pytest.mark.parametrize("status_code", [401, 500])
-def test_http_error_status_raises_openai_provider_error(status_code: int) -> None:
-    """Non-success HTTP statuses raise OpenAIProviderError."""
+@pytest.mark.parametrize(
+    ("status_code", "retryable"),
+    [(401, False), (429, True), (500, True), (503, True)],
+)
+def test_http_error_status_sets_retryable_flag(status_code: int, retryable: bool) -> None:
+    """HTTP failures classify retryable vs non-retryable provider errors."""
 
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(status_code, json={"error": {"message": "failed"}})
@@ -171,8 +174,10 @@ def test_http_error_status_raises_openai_provider_error(status_code: int) -> Non
         http_client=_make_client(handler),
         base_url=_BASE_URL,
     )
-    with pytest.raises(OpenAIProviderError, match=str(status_code)):
+    with pytest.raises(OpenAIProviderError, match=str(status_code)) as exc_info:
         asyncio.run(provider.generate(_sample_request()))
+    assert exc_info.value.retryable is retryable
+    assert exc_info.value.status_code == status_code
 
 
 def test_malformed_success_payload_without_choices_raises() -> None:

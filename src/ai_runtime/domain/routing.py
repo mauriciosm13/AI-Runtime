@@ -39,6 +39,14 @@ DEFAULT_MODEL_CATALOG: Mapping[str, str] = MappingProxyType(
     }
 )
 
+DEFAULT_FAILOVER_CATALOG: Mapping[str, tuple[str, ...]] = MappingProxyType(
+    {
+        "gpt-4o": ("claude-3-5-sonnet-20241022",),
+        "gpt-4o-mini": ("claude-3-5-sonnet-20241022",),
+        "claude-3-5-sonnet-20241022": ("gpt-4o",),
+    }
+)
+
 
 def resolve_model_route(requested_model: str, catalog: Mapping[str, str]) -> ModelRoute:
     """Return the catalog route for ``requested_model``.
@@ -50,3 +58,27 @@ def resolve_model_route(requested_model: str, catalog: Mapping[str, str]) -> Mod
     if provider is None:
         raise UnsupportedModelError(model=requested_model)
     return ModelRoute(model=requested_model, provider=provider)
+
+
+def resolve_route_chain(
+    requested_model: str,
+    catalog: Mapping[str, str],
+    failover_catalog: Mapping[str, tuple[str, ...]] | None = None,
+) -> tuple[ModelRoute, ...]:
+    """Return the primary route followed by configured failover models.
+
+    Raises ``UnsupportedModelError`` when ``requested_model`` is absent from the catalog.
+    """
+    primary = resolve_model_route(requested_model, catalog)
+    fallbacks = DEFAULT_FAILOVER_CATALOG if failover_catalog is None else failover_catalog
+    chain = [primary]
+    seen_models = {primary.model}
+    for fallback_model in fallbacks.get(requested_model, ()):
+        if fallback_model in seen_models:
+            continue
+        try:
+            chain.append(resolve_model_route(fallback_model, catalog))
+        except UnsupportedModelError:
+            continue
+        seen_models.add(fallback_model)
+    return tuple(chain)

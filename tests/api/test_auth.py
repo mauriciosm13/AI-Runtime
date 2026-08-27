@@ -11,6 +11,7 @@ from ai_runtime.api.dependencies import get_authenticate_api_key, get_create_res
 from ai_runtime.api.middleware.request_context import REQUEST_ID_HEADER
 from ai_runtime.application.auth.authenticate_api_key import AuthenticateApiKey
 from ai_runtime.application.policy.enforce_organization_policy import EnforceOrganizationPolicy
+from ai_runtime.application.resilience.provider_executor import ProviderExecutor
 from ai_runtime.application.responses.create_response import CreateResponse
 from ai_runtime.application.routing.model_router import ModelRouter
 from ai_runtime.domain.api_key import ApiKey, ApiKeyStatus
@@ -124,7 +125,12 @@ def _client(provider: FakeModelProvider, authenticate: AuthenticateApiKey) -> Te
         records = FakeUsageRepository()
         policies = FakeOrganizationPolicyRepository()
         return CreateResponse(
-            ModelRouter(providers={"openai": provider}),
+            ProviderExecutor(
+                ModelRouter(providers={"openai": provider}),
+                max_retries=0,
+                retry_base_delay_seconds=0,
+                failover_enabled=False,
+            ),
             records,
             FakeCostEstimator(),
             FakeRateLimiter(),

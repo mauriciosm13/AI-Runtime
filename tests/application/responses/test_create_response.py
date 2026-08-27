@@ -7,6 +7,7 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 import pytest
 from ai_runtime.application.policy.enforce_organization_policy import EnforceOrganizationPolicy
+from ai_runtime.application.resilience.provider_executor import ProviderExecutor
 from ai_runtime.application.responses.create_response import CreateResponse, CreateResponseCommand
 from ai_runtime.application.routing.model_router import ModelRouter, ProviderNotRegisteredError
 from ai_runtime.domain.generation import GenerationRequest, GenerationResponse, Message, MessageRole, TokenUsage
@@ -182,6 +183,24 @@ def _model_router(
     return ModelRouter(providers={provider_name: provider}, catalog={model: provider_name})
 
 
+def _provider_executor(
+    provider: FakeModelProvider,
+    *,
+    model: str = "fake-model",
+    provider_name: str = "openai",
+    model_router: ModelRouter | None = None,
+    max_retries: int = 0,
+    failover_enabled: bool = False,
+) -> ProviderExecutor:
+    router = model_router or _model_router(provider, model=model, provider_name=provider_name)
+    return ProviderExecutor(
+        router,
+        max_retries=max_retries,
+        retry_base_delay_seconds=0,
+        failover_enabled=failover_enabled,
+    )
+
+
 def _use_case(
     provider: FakeModelProvider,
     *,
@@ -191,6 +210,9 @@ def _use_case(
     idempotency_store: FakeIdempotencyStore | None = None,
     policy_repository: FakeOrganizationPolicyRepository | None = None,
     model_router: ModelRouter | None = None,
+    provider_executor: ProviderExecutor | None = None,
+    max_retries: int = 0,
+    failover_enabled: bool = False,
 ) -> tuple[
     CreateResponse,
     FakeUsageRepository,
@@ -205,8 +227,14 @@ def _use_case(
     store = idempotency_store or FakeIdempotencyStore()
     policies = policy_repository or FakeOrganizationPolicyRepository()
     enforce_policy = EnforceOrganizationPolicy(policies, records)
+    executor = provider_executor or _provider_executor(
+        provider,
+        model_router=model_router,
+        max_retries=max_retries,
+        failover_enabled=failover_enabled,
+    )
     use_case = CreateResponse(
-        model_router or _model_router(provider),
+        executor,
         records,
         estimator,
         limiter,
@@ -406,7 +434,7 @@ def test_create_response_accepts_port_protocols() -> None:
     assert isinstance(policy_repository, OrganizationPolicyRepository)
     assert isinstance(
         CreateResponse(
-            _model_router(FakeModelProvider(response=_response())),
+            _provider_executor(FakeModelProvider(response=_response())),
             usage_records,
             cost_estimator,
             rate_limiter,

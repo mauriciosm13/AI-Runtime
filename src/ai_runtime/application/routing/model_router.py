@@ -38,6 +38,11 @@ class ModelRouter:
         self._providers = providers
         self._catalog = DEFAULT_MODEL_CATALOG if catalog is None else catalog
 
+    @property
+    def catalog(self) -> Mapping[str, str]:
+        """Model-to-provider catalog used for route resolution."""
+        return self._catalog
+
     def resolve(self, requested_model: str) -> ResolvedRoute:
         """Return the provider adapter for ``requested_model``.
 

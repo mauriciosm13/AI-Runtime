@@ -5,10 +5,11 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 from ai_runtime.application.policy.enforce_organization_policy import EnforceOrganizationPolicy, EnforceOrganizationPolicyCommand
-from ai_runtime.application.routing.model_router import ModelRouter
+from ai_runtime.application.resilience.provider_executor import ProviderExecutor
 from ai_runtime.domain.generation import GenerationRequest, GenerationResponse, Message, MessageRole, TokenUsage
 from ai_runtime.domain.idempotency import IdempotencyConflictError
 from ai_runtime.domain.rate_limit import RateLimitExceededError
+from ai_runtime.domain.routing import ModelRoute
 from ai_runtime.domain.usage import UsageRecord
 from ai_runtime.ports.cost_estimator import CostEstimator
 from ai_runtime.ports.idempotency_store import IdempotencyCompleted, IdempotencyInProgress, IdempotencyMiss, IdempotencyStore
@@ -63,14 +64,14 @@ class CreateResponse:
 
     def __init__(
         self,
-        model_router: ModelRouter,
+        provider_executor: ProviderExecutor,
         usage_records: UsageRepository,
         cost_estimator: CostEstimator,
         rate_limiter: RateLimiter,
         idempotency_store: IdempotencyStore,
         enforce_organization_policy: EnforceOrganizationPolicy,
     ) -> None:
-        self._model_router = model_router
+        self._provider_executor = provider_executor
         self._usage_records = usage_records
         self._cost_estimator = cost_estimator
         self._rate_limiter = rate_limiter
@@ -100,17 +101,23 @@ class CreateResponse:
             claimed_idempotency = True
 
         try:
-            resolved = self._model_router.resolve(command.request.model)
-            await self._enforce_organization_policy.execute(
-                EnforceOrganizationPolicyCommand(
-                    organization_id=command.organization_id,
-                    requested_model=command.request.model,
-                    max_output_tokens=command.request.max_output_tokens,
+            async def _before_route(route: ModelRoute) -> None:
+                await self._enforce_organization_policy.execute(
+                    EnforceOrganizationPolicyCommand(
+                        organization_id=command.organization_id,
+                        requested_model=route.model,
+                        max_output_tokens=command.request.max_output_tokens,
+                    )
                 )
+
+            execution = await self._provider_executor.execute(
+                requested_model=command.request.model,
+                request=command.request,
+                before_route=_before_route,
             )
-            response = await resolved.provider.generate(command.request)
+            response = execution.response
             estimated_cost = self._cost_estimator.estimate(
-                provider=resolved.provider_name,
+                provider=execution.provider_name,
                 model=response.model,
                 usage=response.usage,
             )
@@ -122,7 +129,7 @@ class CreateResponse:
                     request_id=command.request_id,
                     organization_id=command.organization_id,
                     api_key_id=command.api_key_id,
-                    provider=resolved.provider_name,
+                    provider=execution.provider_name,
                     model=response.model,
                     input_tokens=input_tokens,
                     output_tokens=output_tokens,
