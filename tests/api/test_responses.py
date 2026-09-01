@@ -14,6 +14,7 @@ from ai_runtime.api.dependencies import get_authenticated_principal, get_create_
 from ai_runtime.api.middleware.request_context import REQUEST_ID_HEADER
 from ai_runtime.application.auth.authenticate_api_key import AuthenticatedPrincipal
 from ai_runtime.application.policy.enforce_organization_policy import EnforceOrganizationPolicy
+from ai_runtime.application.resilience.provider_executor import ProviderExecutor
 from ai_runtime.application.responses.create_response import CreateResponse
 from ai_runtime.application.routing.model_router import ModelRouter
 from ai_runtime.domain.generation import GenerationRequest, GenerationResponse, Message, MessageRole, TokenUsage
@@ -88,7 +89,12 @@ def _client_with_provider(
     async def override_create_response() -> CreateResponse:
         enforce_policy = EnforceOrganizationPolicy(policies, records)
         return CreateResponse(
-            ModelRouter(providers={"openai": provider}),
+            ProviderExecutor(
+                ModelRouter(providers={"openai": provider}),
+                max_retries=0,
+                retry_base_delay_seconds=0,
+                failover_enabled=False,
+            ),
             records,
             FakeCostEstimator(),
             limiter,
@@ -135,7 +141,12 @@ def test_post_responses_records_usage_with_request_id() -> None:
     async def override_create_response() -> CreateResponse:
         policies = FakeOrganizationPolicyRepository()
         return CreateResponse(
-            ModelRouter(providers={"openai": provider}),
+            ProviderExecutor(
+                ModelRouter(providers={"openai": provider}),
+                max_retries=0,
+                retry_base_delay_seconds=0,
+                failover_enabled=False,
+            ),
             records,
             FakeCostEstimator(),
             FakeRateLimiter(),

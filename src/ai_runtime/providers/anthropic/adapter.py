@@ -122,9 +122,12 @@ class AnthropicModelProvider:
         try:
             response = await self._http_client.post(url, json=body, headers=headers)
         except httpx.HTTPError as err:
-            raise AnthropicProviderError("Anthropic HTTP request failed") from err
+            raise AnthropicProviderError.transient("Anthropic HTTP request failed") from err
         if response.status_code >= 400:
-            raise AnthropicProviderError(f"Anthropic HTTP request failed with status {response.status_code}")
+            raise AnthropicProviderError.from_http_status(
+                f"Anthropic HTTP request failed with status {response.status_code}",
+                response.status_code,
+            )
         try:
             payload = response.json()
         except ValueError as err:

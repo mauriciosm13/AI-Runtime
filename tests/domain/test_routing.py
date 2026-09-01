@@ -2,7 +2,8 @@
 
 import pytest
 from ai_runtime.domain.generation import DomainValidationError
-from ai_runtime.domain.routing import DEFAULT_MODEL_CATALOG, ModelRoute, UnsupportedModelError, resolve_model_route
+from ai_runtime.domain.routing import DEFAULT_FAILOVER_CATALOG, DEFAULT_MODEL_CATALOG, ModelRoute, UnsupportedModelError
+from ai_runtime.domain.routing import resolve_model_route, resolve_route_chain
 
 
 def test_resolve_model_route_returns_catalog_provider() -> None:
@@ -38,3 +39,26 @@ def test_default_catalog_covers_priced_openai_models() -> None:
     assert DEFAULT_MODEL_CATALOG["gpt-4o"] == "openai"
     assert DEFAULT_MODEL_CATALOG["gpt-4o-mini"] == "openai"
     assert DEFAULT_MODEL_CATALOG["claude-3-5-sonnet-20241022"] == "anthropic"
+
+
+def test_resolve_route_chain_returns_primary_then_failover_models() -> None:
+    chain = resolve_route_chain("gpt-4o-mini", DEFAULT_MODEL_CATALOG)
+    assert chain == (
+        ModelRoute(model="gpt-4o-mini", provider="openai"),
+        ModelRoute(model="claude-3-5-sonnet-20241022", provider="anthropic"),
+    )
+
+
+def test_resolve_route_chain_uses_injected_failover_catalog() -> None:
+    catalog = {"primary": "openai", "backup": "anthropic"}
+    failover = {"primary": ("backup",)}
+    chain = resolve_route_chain("primary", catalog, failover)
+    assert chain == (
+        ModelRoute(model="primary", provider="openai"),
+        ModelRoute(model="backup", provider="anthropic"),
+    )
+
+
+def test_default_failover_catalog_maps_openai_models_to_claude() -> None:
+    assert DEFAULT_FAILOVER_CATALOG["gpt-4o"] == ("claude-3-5-sonnet-20241022",)
+    assert DEFAULT_FAILOVER_CATALOG["claude-3-5-sonnet-20241022"] == ("gpt-4o",)

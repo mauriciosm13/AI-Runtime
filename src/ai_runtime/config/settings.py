@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     rate_limit_requests_per_minute: int = 60
     rate_limit_burst: int = 60
     idempotency_ttl_seconds: int = 86400
+    provider_max_retries: int = 2
+    provider_retry_base_delay_seconds: float = 0.25
+    provider_failover_enabled: bool = True
 
     @field_validator("database_url")
     @classmethod
@@ -59,11 +62,29 @@ class Settings(BaseSettings):
             raise ValueError(msg)
         return value
 
+    @field_validator("provider_max_retries")
+    @classmethod
+    def validate_provider_max_retries(cls, value: int) -> int:
+        """Allow zero retries (single attempt) but reject negative values."""
+        if value < 0:
+            msg = "must be greater than or equal to zero"
+            raise ValueError(msg)
+        return value
+
     @field_validator("rate_limit_requests_per_minute", "rate_limit_burst", "idempotency_ttl_seconds")
     @classmethod
     def validate_positive_int(cls, value: int) -> int:
         """Require positive integers for rate-limit and idempotency settings."""
         if value <= 0:
             msg = "must be greater than zero"
+            raise ValueError(msg)
+        return value
+
+    @field_validator("provider_retry_base_delay_seconds")
+    @classmethod
+    def validate_non_negative_float(cls, value: float) -> float:
+        """Require a non-negative retry backoff delay."""
+        if value < 0:
+            msg = "must be greater than or equal to zero"
             raise ValueError(msg)
         return value

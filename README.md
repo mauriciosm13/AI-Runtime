@@ -86,6 +86,9 @@ Application settings are loaded from environment variables with the `AI_RUNTIME_
 | `AI_RUNTIME_ANTHROPIC_API_KEY` | `anthropic_api_key` | `str` | `""` |
 | `AI_RUNTIME_ANTHROPIC_BASE_URL` | `anthropic_base_url` | `str` | `https://api.anthropic.com` |
 | `AI_RUNTIME_DATABASE_URL` | `database_url` | `str` (`postgresql+asyncpg://...`) | `postgresql+asyncpg://ai_runtime:ai_runtime@localhost:5432/ai_runtime` |
+| `AI_RUNTIME_PROVIDER_MAX_RETRIES` | `provider_max_retries` | `int` | `2` |
+| `AI_RUNTIME_PROVIDER_RETRY_BASE_DELAY_SECONDS` | `provider_retry_base_delay_seconds` | `float` | `0.25` |
+| `AI_RUNTIME_PROVIDER_FAILOVER_ENABLED` | `provider_failover_enabled` | `bool` | `true` |
 
 ## Request correlation
 

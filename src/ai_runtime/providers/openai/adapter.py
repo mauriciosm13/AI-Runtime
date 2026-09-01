@@ -93,9 +93,12 @@ class OpenAIModelProvider:
         try:
             response = await self._http_client.post(url, json=body, headers=headers)
         except httpx.HTTPError as err:
-            raise OpenAIProviderError("OpenAI HTTP request failed") from err
+            raise OpenAIProviderError.transient("OpenAI HTTP request failed") from err
         if response.status_code >= 400:
-            raise OpenAIProviderError(f"OpenAI HTTP request failed with status {response.status_code}")
+            raise OpenAIProviderError.from_http_status(
+                f"OpenAI HTTP request failed with status {response.status_code}",
+                response.status_code,
+            )
         try:
             payload = response.json()
         except ValueError as err:

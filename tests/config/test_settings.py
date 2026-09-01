@@ -19,6 +19,9 @@ _SETTINGS_ENV_VARS = (
     "AI_RUNTIME_RATE_LIMIT_REQUESTS_PER_MINUTE",
     "AI_RUNTIME_RATE_LIMIT_BURST",
     "AI_RUNTIME_IDEMPOTENCY_TTL_SECONDS",
+    "AI_RUNTIME_PROVIDER_MAX_RETRIES",
+    "AI_RUNTIME_PROVIDER_RETRY_BASE_DELAY_SECONDS",
+    "AI_RUNTIME_PROVIDER_FAILOVER_ENABLED",
 )
 
 
@@ -45,6 +48,9 @@ def test_settings_defaults(monkeypatch: MonkeyPatch) -> None:
     assert settings.rate_limit_requests_per_minute == 60
     assert settings.rate_limit_burst == 60
     assert settings.idempotency_ttl_seconds == 86400
+    assert settings.provider_max_retries == 2
+    assert settings.provider_retry_base_delay_seconds == 0.25
+    assert settings.provider_failover_enabled is True
 
 
 def test_settings_override_from_environment(monkeypatch: MonkeyPatch) -> None:
@@ -106,6 +112,14 @@ def test_settings_rejects_invalid_redis_url(monkeypatch: MonkeyPatch) -> None:
     """redis_url must use redis:// or rediss://."""
     _clear_settings_env(monkeypatch)
     monkeypatch.setenv("AI_RUNTIME_REDIS_URL", "http://localhost:6379/0")
+    with pytest.raises(ValidationError):
+        Settings()
+
+
+def test_settings_rejects_negative_provider_max_retries(monkeypatch: MonkeyPatch) -> None:
+    """provider_max_retries must be zero or greater."""
+    _clear_settings_env(monkeypatch)
+    monkeypatch.setenv("AI_RUNTIME_PROVIDER_MAX_RETRIES", "-1")
     with pytest.raises(ValidationError):
         Settings()
 
