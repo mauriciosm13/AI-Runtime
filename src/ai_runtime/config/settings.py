@@ -35,6 +35,8 @@ class Settings(BaseSettings):
     openai_base_url: str = "https://api.openai.com/v1"
     anthropic_api_key: str = ""
     anthropic_base_url: str = "https://api.anthropic.com"
+    gemini_api_key: str = ""
+    gemini_base_url: str = "https://generativelanguage.googleapis.com"
     database_url: str = _DEFAULT_DATABASE_URL
     redis_url: str = _DEFAULT_REDIS_URL
     rate_limit_requests_per_minute: int = 60

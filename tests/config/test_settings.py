@@ -14,6 +14,8 @@ _SETTINGS_ENV_VARS = (
     "AI_RUNTIME_OPENAI_BASE_URL",
     "AI_RUNTIME_ANTHROPIC_API_KEY",
     "AI_RUNTIME_ANTHROPIC_BASE_URL",
+    "AI_RUNTIME_GEMINI_API_KEY",
+    "AI_RUNTIME_GEMINI_BASE_URL",
     "AI_RUNTIME_DATABASE_URL",
     "AI_RUNTIME_REDIS_URL",
     "AI_RUNTIME_RATE_LIMIT_REQUESTS_PER_MINUTE",
@@ -43,6 +45,8 @@ def test_settings_defaults(monkeypatch: MonkeyPatch) -> None:
     assert settings.openai_base_url == "https://api.openai.com/v1"
     assert settings.anthropic_api_key == ""
     assert settings.anthropic_base_url == "https://api.anthropic.com"
+    assert settings.gemini_api_key == ""
+    assert settings.gemini_base_url == "https://generativelanguage.googleapis.com"
     assert settings.database_url == "postgresql+asyncpg://ai_runtime:ai_runtime@localhost:5432/ai_runtime"
     assert settings.redis_url == "redis://localhost:6379/0"
     assert settings.rate_limit_requests_per_minute == 60

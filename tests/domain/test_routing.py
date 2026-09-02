@@ -39,6 +39,7 @@ def test_default_catalog_covers_priced_openai_models() -> None:
     assert DEFAULT_MODEL_CATALOG["gpt-4o"] == "openai"
     assert DEFAULT_MODEL_CATALOG["gpt-4o-mini"] == "openai"
     assert DEFAULT_MODEL_CATALOG["claude-3-5-sonnet-20241022"] == "anthropic"
+    assert DEFAULT_MODEL_CATALOG["gemini-2.5-flash"] == "gemini"
 
 
 def test_resolve_route_chain_returns_primary_then_failover_models() -> None:
@@ -46,6 +47,7 @@ def test_resolve_route_chain_returns_primary_then_failover_models() -> None:
     assert chain == (
         ModelRoute(model="gpt-4o-mini", provider="openai"),
         ModelRoute(model="claude-3-5-sonnet-20241022", provider="anthropic"),
+        ModelRoute(model="gemini-2.5-flash", provider="gemini"),
     )
 
 
@@ -60,5 +62,7 @@ def test_resolve_route_chain_uses_injected_failover_catalog() -> None:
 
 
 def test_default_failover_catalog_maps_openai_models_to_claude() -> None:
-    assert DEFAULT_FAILOVER_CATALOG["gpt-4o"] == ("claude-3-5-sonnet-20241022",)
-    assert DEFAULT_FAILOVER_CATALOG["claude-3-5-sonnet-20241022"] == ("gpt-4o",)
+    assert DEFAULT_FAILOVER_CATALOG["gpt-4o"] == ("claude-3-5-sonnet-20241022", "gemini-2.5-flash")
+    assert DEFAULT_FAILOVER_CATALOG["gpt-4o-mini"] == ("claude-3-5-sonnet-20241022", "gemini-2.5-flash")
+    assert DEFAULT_FAILOVER_CATALOG["claude-3-5-sonnet-20241022"] == ("gpt-4o", "gemini-2.5-flash")
+    assert DEFAULT_FAILOVER_CATALOG["gemini-2.5-flash"] == ("gpt-4o-mini",)

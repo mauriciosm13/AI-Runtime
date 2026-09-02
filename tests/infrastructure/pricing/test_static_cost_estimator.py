@@ -27,6 +27,17 @@ def test_estimates_known_anthropic_model() -> None:
     assert cost == Decimal("18.00000000")
 
 
+def test_estimates_known_gemini_model() -> None:
+    """Known Gemini model prices produce a quantized USD estimate."""
+    estimator = StaticCostEstimator()
+    cost = estimator.estimate(
+        provider="gemini",
+        model="gemini-2.5-flash",
+        usage=TokenUsage(input_tokens=1_000_000, output_tokens=1_000_000),
+    )
+    assert cost == Decimal("2.80000000")
+
+
 def test_returns_none_for_unknown_model_or_missing_usage() -> None:
     """Unknown models and missing usage yield None rather than inventing cost."""
     estimator = StaticCostEstimator()
