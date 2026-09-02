@@ -36,14 +36,16 @@ DEFAULT_MODEL_CATALOG: Mapping[str, str] = MappingProxyType(
         "gpt-4o-mini": "openai",
         "gpt-4o": "openai",
         "claude-3-5-sonnet-20241022": "anthropic",
+        "gemini-2.5-flash": "gemini",
     }
 )
 
 DEFAULT_FAILOVER_CATALOG: Mapping[str, tuple[str, ...]] = MappingProxyType(
     {
-        "gpt-4o": ("claude-3-5-sonnet-20241022",),
-        "gpt-4o-mini": ("claude-3-5-sonnet-20241022",),
-        "claude-3-5-sonnet-20241022": ("gpt-4o",),
+        "gpt-4o": ("claude-3-5-sonnet-20241022", "gemini-2.5-flash"),
+        "gpt-4o-mini": ("claude-3-5-sonnet-20241022", "gemini-2.5-flash"),
+        "claude-3-5-sonnet-20241022": ("gpt-4o", "gemini-2.5-flash"),
+        "gemini-2.5-flash": ("gpt-4o-mini",),
     }
 )
 

@@ -92,7 +92,7 @@ When Redis is unavailable, idempotency fails open: the request proceeds without 
 
 `POST /v1/responses` is the planned provider-neutral model-invocation endpoint. It is intentionally a resource-oriented endpoint rather than a provider-specific proxy.
 
-Clients send a catalog model name (`model`). The runtime selects the provider through `ModelRouter`; clients do not name a vendor. The initial catalog maps `gpt-4o` and `gpt-4o-mini` to OpenAI and `claude-3-5-sonnet-20241022` to Anthropic when the adapter is registered.
+Clients send a catalog model name (`model`). The runtime selects the provider through `ModelRouter`; clients do not name a vendor. The catalog maps `gpt-4o` and `gpt-4o-mini` to OpenAI, `claude-3-5-sonnet-20241022` to Anthropic, and `gemini-2.5-flash` to Gemini when those adapters are registered.
 
 The detailed request and response schema is deferred until the first provider capability is selected. Its minimum contract will include:
 

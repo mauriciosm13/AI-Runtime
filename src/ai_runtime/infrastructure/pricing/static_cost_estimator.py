@@ -23,9 +23,17 @@ _ANTHROPIC_PRICING: dict[str, ModelPricing] = {
     ),
 }
 
+_GEMINI_PRICING: dict[str, ModelPricing] = {
+    "gemini-2.5-flash": ModelPricing(
+        input_usd_per_1m_tokens=Decimal("0.30"),
+        output_usd_per_1m_tokens=Decimal("2.50"),
+    ),
+}
+
 _PROVIDER_PRICING: dict[str, dict[str, ModelPricing]] = {
     "openai": _OPENAI_PRICING,
     "anthropic": _ANTHROPIC_PRICING,
+    "gemini": _GEMINI_PRICING,
 }
 
 

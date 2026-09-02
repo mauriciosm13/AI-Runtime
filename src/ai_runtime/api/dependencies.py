@@ -27,6 +27,7 @@ from ai_runtime.infrastructure.redis import RedisIdempotencyStore, RedisRateLimi
 from ai_runtime.infrastructure.security.api_key_crypto import Argon2ApiKeyHasher
 from ai_runtime.ports.model_provider import ModelProvider
 from ai_runtime.providers.anthropic.adapter import AnthropicModelProvider
+from ai_runtime.providers.gemini.adapter import GeminiModelProvider
 from ai_runtime.providers.openai.adapter import OpenAIModelProvider
 
 _UNAUTHORIZED_MESSAGE = "Invalid or missing API key."
@@ -36,7 +37,7 @@ _FORBIDDEN_SUSPENDED_MESSAGE = "Organization is suspended."
 def build_model_providers(settings: Settings, http_client: httpx.AsyncClient) -> Mapping[str, ModelProvider]:
     """Register provider adapters present in this deployment.
 
-    Anthropic is omitted when ``AI_RUNTIME_ANTHROPIC_API_KEY`` is blank so
+    Anthropic and Gemini are omitted when their API keys are blank so
     OpenAI-only deploys stay valid. A catalog model whose provider is missing
     then fails with ``ProviderNotRegisteredError`` (HTTP 503).
     """
@@ -52,6 +53,12 @@ def build_model_providers(settings: Settings, http_client: httpx.AsyncClient) ->
             api_key=settings.anthropic_api_key,
             http_client=http_client,
             base_url=settings.anthropic_base_url,
+        )
+    if settings.gemini_api_key.strip():
+        providers["gemini"] = GeminiModelProvider(
+            api_key=settings.gemini_api_key,
+            http_client=http_client,
+            base_url=settings.gemini_base_url,
         )
     return providers
 

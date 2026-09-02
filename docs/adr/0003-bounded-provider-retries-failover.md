@@ -12,11 +12,11 @@ Requirements ([requirements.md](../foundation/requirements.md)) mandate provider
 
 ## Decision
 
-1. **Classify adapter failures** — `ProviderError` carries `retryable` and optional `status_code`. OpenAI and Anthropic adapters mark HTTP `429`, `500`, `502`, `503`, and `504` plus transport failures as retryable; client errors and malformed payloads stay non-retryable.
+1. **Classify adapter failures** — `ProviderError` carries `retryable` and optional `status_code`. OpenAI, Anthropic, and Gemini adapters mark HTTP `429`, `500`, `502`, `503`, and `504` plus transport failures as retryable; client errors and malformed payloads stay non-retryable.
 
 2. **Application-layer execution** — `ProviderExecutor` in `application/resilience/` wraps `ModelRouter` and owns retry backoff and failover. Provider adapters remain unaware of retries and routing policy.
 
-3. **Static failover catalog** — `DEFAULT_FAILOVER_CATALOG` in `domain/routing.py` maps a requested model to optional alternate catalog models (for example `gpt-4o` → `claude-3-5-sonnet-20241022`). Failover is enabled by default and configurable via `AI_RUNTIME_PROVIDER_FAILOVER_ENABLED`.
+3. **Static failover catalog** — `DEFAULT_FAILOVER_CATALOG` in `domain/routing.py` maps a requested model to optional alternate catalog models (for example `gpt-4o` → `claude-3-5-sonnet-20241022`, then `gemini-2.5-flash`). Failover is enabled by default and configurable via `AI_RUNTIME_PROVIDER_FAILOVER_ENABLED`.
 
 4. **Policy per route** — Before each route attempt, `CreateResponse` re-runs organization entitlements for that route's model. Routes denied by entitlement or missing adapters are skipped; monthly quota checks still apply per attempt.
 
