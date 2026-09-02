@@ -35,10 +35,7 @@ def _to_gemini_body(request: GenerationRequest) -> dict[str, Any]:
     if not conversation:
         raise GeminiProviderError("messages must contain at least one non-system message")
     body: dict[str, Any] = {
-        "contents": [
-            {"role": _gemini_role(message.role), "parts": [{"text": message.content}]}
-            for message in conversation
-        ],
+        "contents": [{"role": _gemini_role(message.role), "parts": [{"text": message.content}]} for message in conversation],
     }
     if system is not None:
         body["systemInstruction"] = {"parts": [{"text": system}]}
