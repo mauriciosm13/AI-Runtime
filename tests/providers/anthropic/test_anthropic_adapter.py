@@ -5,7 +5,7 @@ import json
 from collections.abc import Callable
 import httpx
 import pytest
-from ai_runtime.domain.generation import GenerationRequest, Message, MessageRole
+from ai_runtime.domain.generation import GenerationDelta, GenerationRequest, GenerationResponse, Message, MessageRole
 from ai_runtime.ports.model_provider import ModelProvider
 from ai_runtime.providers.anthropic import AnthropicModelProvider, AnthropicProviderError
 
@@ -206,3 +206,64 @@ def test_falls_back_to_request_model_when_response_model_missing() -> None:
     )
     response = asyncio.run(provider.generate(_sample_request()))
     assert response.model == "claude-3-5-sonnet-20241022"
+
+
+def _anthropic_sse_body() -> bytes:
+    events = [
+        (
+            "message_start",
+            {
+                "type": "message_start",
+                "message": {
+                    "id": "msg_123",
+                    "model": "claude-3-5-sonnet-20241022",
+                    "usage": {"input_tokens": 10},
+                },
+            },
+        ),
+        ("content_block_delta", {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "Hi"}}),
+        ("content_block_delta", {"type": "content_block_delta", "delta": {"type": "text_delta", "text": " there"}}),
+        ("message_delta", {"type": "message_delta", "usage": {"output_tokens": 4}}),
+        ("message_stop", {"type": "message_stop"}),
+    ]
+    return "".join(f"event: {name}\ndata: {json.dumps(payload)}\n\n" for name, payload in events).encode()
+
+
+def _collect_stream(provider: AnthropicModelProvider, request: GenerationRequest) -> list[object]:
+    async def _run() -> list[object]:
+        return [event async for event in provider.stream(request)]
+
+    return asyncio.run(_run())
+
+
+def test_stream_maps_anthropic_sse_events_to_domain_events() -> None:
+    """Anthropic stream events assemble into a completed GenerationResponse with usage."""
+    captured: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(request.content.decode())
+        return httpx.Response(200, content=_anthropic_sse_body(), headers={"Content-Type": "text/event-stream"})
+
+    provider = AnthropicModelProvider(api_key=_API_KEY, http_client=_make_client(handler), base_url=_BASE_URL)
+    events = _collect_stream(provider, _sample_request())
+    body = captured["body"]
+    assert isinstance(body, dict)
+    assert body["stream"] is True
+    assert isinstance(events[0], GenerationDelta)
+    assert events[0].content == "Hi"
+    assert isinstance(events[-1], GenerationResponse)
+    assert events[-1].output.content == "Hi there"
+    assert events[-1].usage is not None
+    assert events[-1].usage.total_tokens == 14
+
+
+def test_stream_http_error_status_sets_retryable_flag() -> None:
+    """Streaming HTTP failures classify retryable vs non-retryable errors."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, json={"error": {"message": "failed"}})
+
+    provider = AnthropicModelProvider(api_key=_API_KEY, http_client=_make_client(handler), base_url=_BASE_URL)
+    with pytest.raises(AnthropicProviderError, match="500") as exc_info:
+        _collect_stream(provider, _sample_request())
+    assert exc_info.value.retryable is True

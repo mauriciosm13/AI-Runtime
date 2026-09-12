@@ -94,15 +94,23 @@ When Redis is unavailable, idempotency fails open: the request proceeds without 
 
 Clients send a catalog model name (`model`). The runtime selects the provider through `ModelRouter`; clients do not name a vendor. The catalog maps `gpt-4o` and `gpt-4o-mini` to OpenAI, `claude-3-5-sonnet-20241022` to Anthropic, and `gemini-2.5-flash` to Gemini when those adapters are registered.
 
-The detailed request and response schema is deferred until the first provider capability is selected. Its minimum contract will include:
+Clients send `model`, `messages`, optional `temperature` / `max_output_tokens`, and optional `stream` (default `false`).
 
-- requested model or routing preference;
-- normalized input/messages;
-- generation options supported by the provider-neutral contract;
-- an opt-in streaming mode;
-- a stable response identifier, model metadata, output, usage, and request identifier.
+When `stream` is omitted or `false`, a successful call returns `200` JSON with `id`, `model`, `output`, and `usage`.
 
-Streaming will use Server-Sent Events when implemented. A streaming request must preserve the same authorization, routing, telemetry, and terminal usage semantics as a non-streaming request.
+When `stream` is `true`, a successful call returns `Content-Type: text/event-stream` with provider-neutral events:
+
+| Event | Payload |
+| --- | --- |
+| `response.delta` | `id`, `model`, `delta.content` |
+| `response.completed` | same shape as the JSON `ResponseSchema` |
+| `response.error` | existing error envelope (`code`, `message`, `request_id`) |
+
+Pre-stream failures (auth, validation, rate limit, quota, entitlement, unknown model, missing adapter, provider failure before the first event) keep the JSON error envelope. After the first SSE event, provider failures are delivered as `response.error` and the stream ends.
+
+`Idempotency-Key` combined with `stream: true` is rejected (`422` / `invalid_request`) in this slice. Streaming requests still consume the organization rate limit, enforce entitlements and monthly quota before the provider stream starts, and persist one usage row after `response.completed`. Usage is not written if the stream fails after starting.
+
+Retry and failover apply only before the first SSE event. After the client has received any event, the chosen route is sticky.
 
 ## Error contract
 

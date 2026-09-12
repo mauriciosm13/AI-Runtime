@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
@@ -10,7 +11,8 @@ from ai_runtime.application.policy.enforce_organization_policy import EnforceOrg
 from ai_runtime.application.resilience.provider_executor import ProviderExecutor
 from ai_runtime.application.responses.create_response import CreateResponse, CreateResponseCommand
 from ai_runtime.application.routing.model_router import ModelRouter, ProviderNotRegisteredError
-from ai_runtime.domain.generation import GenerationRequest, GenerationResponse, Message, MessageRole, TokenUsage
+from ai_runtime.domain.generation import DomainValidationError, GenerationDelta, GenerationRequest, GenerationResponse
+from ai_runtime.domain.generation import Message, MessageRole, TokenUsage
 from ai_runtime.domain.idempotency import IdempotencyConflictError
 from ai_runtime.domain.organization_policy import ModelEntitlement, ModelNotAvailableError, OrganizationPolicy, QuotaExceededError
 from ai_runtime.domain.rate_limit import RateLimitExceededError
@@ -23,6 +25,7 @@ from ai_runtime.ports.model_provider import ModelProvider
 from ai_runtime.ports.organization_policy_repository import OrganizationPolicyRepository
 from ai_runtime.ports.rate_limiter import RateLimitDecision, RateLimiter
 from ai_runtime.ports.usage_repository import UsageRepository
+from ai_runtime.providers.errors import ProviderError
 
 
 class FakeProviderError(Exception):
@@ -32,10 +35,16 @@ class FakeProviderError(Exception):
 class FakeModelProvider:
     """Deterministic provider fake that records the request it receives."""
 
-    def __init__(self, response: GenerationResponse | None = None, error: Exception | None = None) -> None:
+    def __init__(
+        self,
+        response: GenerationResponse | None = None,
+        error: Exception | None = None,
+        error_after_delta: Exception | None = None,
+    ) -> None:
         self.requests: list[GenerationRequest] = []
         self._response = response
         self._error = error
+        self._error_after_delta = error_after_delta
 
     async def generate(self, request: GenerationRequest) -> GenerationResponse:
         self.requests.append(request)
@@ -43,6 +52,14 @@ class FakeModelProvider:
             raise self._error
         assert self._response is not None
         return self._response
+
+    async def stream(self, request: GenerationRequest) -> AsyncIterator[GenerationDelta | GenerationResponse]:
+        response = await self.generate(request)
+        if response.output.content:
+            yield GenerationDelta(id=response.id, model=response.model, content=response.output.content)
+        if self._error_after_delta is not None:
+            raise self._error_after_delta
+        yield response
 
 
 class FakeUsageRepository:
@@ -615,3 +632,60 @@ def test_create_response_releases_idempotency_lease_on_policy_denial() -> None:
     assert provider.requests == []
     assert records.added == []
     assert store.released == [(org_id, "key-1")]
+
+
+def _collect_stream(use_case: CreateResponse, command: CreateResponseCommand) -> list[object]:
+    async def _run() -> list[object]:
+        return [event async for event in use_case.stream(command)]
+
+    return asyncio.run(_run())
+
+
+def test_stream_records_usage_after_completed_event() -> None:
+    """Streaming persists usage only after the completed generation event."""
+    provider = FakeModelProvider(response=_response())
+    use_case, records, estimator, limiter, store, _ = _use_case(provider)
+    command = _command()
+
+    events = _collect_stream(use_case, command)
+
+    assert isinstance(events[0], GenerationDelta)
+    assert isinstance(events[-1], GenerationResponse)
+    assert events[-1].output.content == "Hi"
+    assert len(records.added) == 1
+    assert records.added[0].provider == "openai"
+    assert limiter.calls == [command.organization_id]
+    assert store.begin_calls == []
+    assert estimator.calls == [("openai", "fake-model", TokenUsage(input_tokens=10, output_tokens=5))]
+
+
+def test_stream_rejects_idempotency_key() -> None:
+    """Streaming does not accept Idempotency-Key in this slice."""
+    provider = FakeModelProvider(response=_response())
+    use_case, records, _, _, store, _ = _use_case(provider)
+
+    with pytest.raises(DomainValidationError, match="Idempotency-Key"):
+        _collect_stream(use_case, _command(idempotency_key="key-1"))
+
+    assert provider.requests == []
+    assert records.added == []
+    assert store.begin_calls == []
+
+
+def test_stream_does_not_record_usage_when_provider_fails_after_delta() -> None:
+    """A mid-stream provider error skips usage persistence."""
+    provider = FakeModelProvider(
+        response=_response(),
+        error_after_delta=ProviderError("generation failed"),
+    )
+    use_case, records, _, _, _, _ = _use_case(provider)
+
+    async def _run() -> None:
+        iterator = use_case.stream(_command())
+        first = await anext(iterator)
+        assert isinstance(first, GenerationDelta)
+        with pytest.raises(ProviderError, match="generation failed"):
+            await anext(iterator)
+
+    asyncio.run(_run())
+    assert records.added == []

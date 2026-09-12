@@ -1,9 +1,12 @@
 """Gemini generateContent adapter implementing ModelProvider."""
 
+from collections.abc import AsyncIterator
 from typing import Any
+import json
 import httpx
-from ai_runtime.domain.generation import GenerationRequest, GenerationResponse, Message, MessageRole, TokenUsage
+from ai_runtime.domain.generation import GenerationDelta, GenerationRequest, GenerationResponse, Message, MessageRole, TokenUsage
 from ai_runtime.providers.gemini.errors import GeminiProviderError
+from ai_runtime.providers.sse import iter_sse_events
 
 _DEFAULT_GEMINI_BASE_URL = "https://generativelanguage.googleapis.com"
 _GEMINI_GENERATE_PATH = "/v1beta/models"
@@ -67,6 +70,25 @@ def _text_from_parts(parts: object) -> str:
         texts.append(text)
     if not texts:
         raise GeminiProviderError("Gemini response is missing text content")
+    return "".join(texts)
+
+
+def _optional_text_from_parts(parts: object) -> str:
+    """Join Gemini text parts for a stream chunk; thought-only chunks yield empty text."""
+    if not isinstance(parts, list) or not parts:
+        return ""
+    texts: list[str] = []
+    for part in parts:
+        if not isinstance(part, dict):
+            raise GeminiProviderError("Gemini response content part is invalid")
+        if part.get("thought") is True:
+            continue
+        text = part.get("text")
+        if text is None:
+            continue
+        if not isinstance(text, str):
+            raise GeminiProviderError("Gemini response text part is missing text")
+        texts.append(text)
     return "".join(texts)
 
 
@@ -153,3 +175,70 @@ class GeminiModelProvider:
         if not isinstance(payload, dict):
             raise GeminiProviderError("Gemini response body must be a JSON object")
         return _from_gemini_payload(payload, request)
+
+    async def stream(self, request: GenerationRequest) -> AsyncIterator[GenerationDelta | GenerationResponse]:
+        """Invoke Gemini streamGenerateContent and yield domain events."""
+        url = f"{self._base_url}{_GEMINI_GENERATE_PATH}/{request.model}:streamGenerateContent"
+        headers = {
+            "x-goog-api-key": self._api_key,
+            "Content-Type": "application/json",
+        }
+        body = _to_gemini_body(request)
+        try:
+            async with self._http_client.stream("POST", url, params={"alt": "sse"}, json=body, headers=headers) as response:
+                if response.status_code >= 400:
+                    await response.aread()
+                    raise GeminiProviderError.from_http_status(
+                        f"Gemini HTTP request failed with status {response.status_code}",
+                        response.status_code,
+                    )
+                response_id = ""
+                model = request.model
+                assembled: list[str] = []
+                usage: TokenUsage | None = None
+                async for _event_name, data in iter_sse_events(response):
+                    try:
+                        payload = json.loads(data)
+                    except json.JSONDecodeError as err:
+                        raise GeminiProviderError("Gemini stream chunk is not valid JSON") from err
+                    if not isinstance(payload, dict):
+                        raise GeminiProviderError("Gemini stream chunk must be a JSON object")
+                    chunk_id = payload.get("responseId")
+                    if isinstance(chunk_id, str) and chunk_id.strip():
+                        response_id = chunk_id
+                    chunk_model = payload.get("modelVersion")
+                    if isinstance(chunk_model, str) and chunk_model.strip():
+                        model = chunk_model
+                    candidates = payload.get("candidates")
+                    if isinstance(candidates, list) and candidates:
+                        first_candidate = candidates[0]
+                        if not isinstance(first_candidate, dict):
+                            raise GeminiProviderError("Gemini stream candidate is invalid")
+                        content = first_candidate.get("content")
+                        if isinstance(content, dict):
+                            text = _optional_text_from_parts(content.get("parts"))
+                            if text:
+                                if not response_id.strip():
+                                    raise GeminiProviderError("Gemini stream is missing a valid id")
+                                assembled.append(text)
+                                yield GenerationDelta(id=response_id, model=model, content=text)
+                    usage_payload = payload.get("usageMetadata")
+                    if isinstance(usage_payload, dict):
+                        input_tokens = usage_payload.get("promptTokenCount")
+                        output_tokens = usage_payload.get("candidatesTokenCount")
+                        if isinstance(input_tokens, int) and isinstance(output_tokens, int):
+                            usage = TokenUsage(input_tokens=input_tokens, output_tokens=output_tokens)
+                        elif input_tokens is not None or output_tokens is not None:
+                            raise GeminiProviderError("Gemini response usage is invalid")
+        except GeminiProviderError:
+            raise
+        except httpx.HTTPError as err:
+            raise GeminiProviderError.transient("Gemini HTTP request failed") from err
+        if not response_id.strip():
+            raise GeminiProviderError("Gemini stream is missing a valid id")
+        yield GenerationResponse(
+            id=response_id,
+            model=model,
+            output=Message(role=MessageRole.ASSISTANT, content="".join(assembled)),
+            usage=usage,
+        )

@@ -3,7 +3,9 @@
 import asyncio
 import pytest
 from ai_runtime.application.routing.model_router import ModelRouter, ProviderNotRegisteredError
-from ai_runtime.domain.generation import GenerationRequest, GenerationResponse, Message, MessageRole
+from collections.abc import AsyncIterator
+from ai_runtime.domain.generation import GenerationDelta, GenerationRequest, GenerationResponse
+from ai_runtime.domain.generation import GenerationStreamEvent, Message, MessageRole
 from ai_runtime.domain.routing import UnsupportedModelError
 from ai_runtime.ports.model_provider import ModelProvider
 
@@ -20,6 +22,11 @@ class FakeModelProvider:
             model=request.model,
             output=Message(role=MessageRole.ASSISTANT, content=self.name),
         )
+
+    async def stream(self, request: GenerationRequest) -> AsyncIterator[GenerationStreamEvent]:
+        response = await self.generate(request)
+        yield GenerationDelta(id=response.id, model=response.model, content=response.output.content)
+        yield response
 
 
 def test_resolve_binds_catalog_model_to_registered_adapter() -> None:

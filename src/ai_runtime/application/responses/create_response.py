@@ -1,12 +1,14 @@
 """Use case for creating a provider-neutral model response."""
 
 import json
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 from ai_runtime.application.policy.enforce_organization_policy import EnforceOrganizationPolicy, EnforceOrganizationPolicyCommand
 from ai_runtime.application.resilience.provider_executor import ProviderExecutor
-from ai_runtime.domain.generation import GenerationRequest, GenerationResponse, Message, MessageRole, TokenUsage
+from ai_runtime.domain.generation import DomainValidationError, GenerationRequest, GenerationResponse
+from ai_runtime.domain.generation import GenerationStreamEvent, Message, MessageRole, TokenUsage
 from ai_runtime.domain.idempotency import IdempotencyConflictError
 from ai_runtime.domain.rate_limit import RateLimitExceededError
 from ai_runtime.domain.routing import ModelRoute
@@ -117,27 +119,7 @@ class CreateResponse:
                 before_route=_before_route,
             )
             response = execution.response
-            estimated_cost = self._cost_estimator.estimate(
-                provider=execution.provider_name,
-                model=response.model,
-                usage=response.usage,
-            )
-            input_tokens = response.usage.input_tokens if response.usage is not None else None
-            output_tokens = response.usage.output_tokens if response.usage is not None else None
-            await self._usage_records.add(
-                UsageRecord(
-                    id=uuid4(),
-                    request_id=command.request_id,
-                    organization_id=command.organization_id,
-                    api_key_id=command.api_key_id,
-                    provider=execution.provider_name,
-                    model=response.model,
-                    input_tokens=input_tokens,
-                    output_tokens=output_tokens,
-                    estimated_cost_usd=estimated_cost,
-                    created_at=datetime.now(UTC),
-                )
-            )
+            await self._record_usage(command, execution.provider_name, response)
             if claimed_idempotency and command.idempotency_key is not None:
                 await self._idempotency_store.complete(
                     command.organization_id,
@@ -149,3 +131,63 @@ class CreateResponse:
             if claimed_idempotency and command.idempotency_key is not None:
                 await self._idempotency_store.release(command.organization_id, command.idempotency_key)
             raise
+
+    async def stream(self, command: CreateResponseCommand) -> AsyncIterator[GenerationStreamEvent]:
+        """Enforce limits, stream generation events, and record usage on completion.
+
+        Idempotency-Key is rejected. Rate limiting and organization policy run
+        before the first event. Usage is written only after a completed response.
+        """
+        if command.idempotency_key is not None:
+            raise DomainValidationError("Idempotency-Key is not supported for streaming requests.")
+        decision = await self._rate_limiter.consume(command.organization_id)
+        if not decision.allowed:
+            retry_after = decision.retry_after_seconds if decision.retry_after_seconds is not None else 1
+            raise RateLimitExceededError(retry_after_seconds=max(1, retry_after))
+
+        async def _before_route(route: ModelRoute) -> None:
+            await self._enforce_organization_policy.execute(
+                EnforceOrganizationPolicyCommand(
+                    organization_id=command.organization_id,
+                    requested_model=route.model,
+                    max_output_tokens=command.request.max_output_tokens,
+                )
+            )
+
+        async for item in self._provider_executor.stream(
+            requested_model=command.request.model,
+            request=command.request,
+            before_route=_before_route,
+        ):
+            if isinstance(item.payload, GenerationResponse):
+                await self._record_usage(command, item.provider_name, item.payload)
+            yield item.payload
+
+    async def _record_usage(
+        self,
+        command: CreateResponseCommand,
+        provider_name: str,
+        response: GenerationResponse,
+    ) -> None:
+        """Persist a usage row for a successful generation."""
+        estimated_cost = self._cost_estimator.estimate(
+            provider=provider_name,
+            model=response.model,
+            usage=response.usage,
+        )
+        input_tokens = response.usage.input_tokens if response.usage is not None else None
+        output_tokens = response.usage.output_tokens if response.usage is not None else None
+        await self._usage_records.add(
+            UsageRecord(
+                id=uuid4(),
+                request_id=command.request_id,
+                organization_id=command.organization_id,
+                api_key_id=command.api_key_id,
+                provider=provider_name,
+                model=response.model,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                estimated_cost_usd=estimated_cost,
+                created_at=datetime.now(UTC),
+            )
+        )

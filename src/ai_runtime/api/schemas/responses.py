@@ -22,6 +22,7 @@ class CreateResponseRequest(BaseModel):
     messages: list[MessageSchema] = Field(min_length=1)
     temperature: float | None = Field(default=None, ge=0.0, le=2.0)
     max_output_tokens: int | None = Field(default=None, gt=0)
+    stream: bool = False
 
     def to_domain(self) -> GenerationRequest:
         """Map this API payload to a domain GenerationRequest."""
@@ -30,6 +31,7 @@ class CreateResponseRequest(BaseModel):
             messages=tuple(Message(role=message.role, content=message.content) for message in self.messages),
             temperature=self.temperature,
             max_output_tokens=self.max_output_tokens,
+            stream=self.stream,
         )
 
 

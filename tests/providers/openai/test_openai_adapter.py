@@ -5,7 +5,7 @@ import json
 from collections.abc import Callable
 import httpx
 import pytest
-from ai_runtime.domain.generation import GenerationRequest, Message, MessageRole
+from ai_runtime.domain.generation import GenerationDelta, GenerationRequest, GenerationResponse, Message, MessageRole
 from ai_runtime.ports.model_provider import ModelProvider
 from ai_runtime.providers.openai import OpenAIModelProvider, OpenAIProviderError
 
@@ -213,3 +213,65 @@ def test_falls_back_to_request_model_when_response_model_missing() -> None:
     )
     response = asyncio.run(provider.generate(_sample_request()))
     assert response.model == "gpt-4o-mini"
+
+
+def _openai_sse_body() -> bytes:
+    chunks = [
+        {"id": "chatcmpl-123", "model": "gpt-4o-mini", "choices": [{"delta": {"content": "Hi"}}]},
+        {"id": "chatcmpl-123", "model": "gpt-4o-mini", "choices": [{"delta": {"content": " there"}}]},
+        {"id": "chatcmpl-123", "choices": [], "usage": {"prompt_tokens": 10, "completion_tokens": 4}},
+    ]
+    return "".join(f"data: {json.dumps(chunk)}\n\n" for chunk in chunks).encode() + b"data: [DONE]\n\n"
+
+
+def _collect_stream(provider: OpenAIModelProvider, request: GenerationRequest) -> list[object]:
+    async def _run() -> list[object]:
+        return [event async for event in provider.stream(request)]
+
+    return asyncio.run(_run())
+
+
+def test_stream_maps_openai_sse_chunks_to_domain_events() -> None:
+    """OpenAI SSE deltas assemble into a completed GenerationResponse with usage."""
+    captured: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(request.content.decode())
+        return httpx.Response(200, content=_openai_sse_body(), headers={"Content-Type": "text/event-stream"})
+
+    provider = OpenAIModelProvider(api_key=_API_KEY, http_client=_make_client(handler), base_url=_BASE_URL)
+    events = _collect_stream(provider, _sample_request())
+    body = captured["body"]
+    assert isinstance(body, dict)
+    assert body["stream"] is True
+    assert body["stream_options"] == {"include_usage": True}
+    assert isinstance(events[0], GenerationDelta)
+    assert events[0].content == "Hi"
+    assert isinstance(events[-1], GenerationResponse)
+    assert events[-1].output.content == "Hi there"
+    assert events[-1].usage is not None
+    assert events[-1].usage.total_tokens == 14
+
+
+def test_stream_http_error_status_sets_retryable_flag() -> None:
+    """Streaming HTTP failures classify retryable vs non-retryable errors."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(503, json={"error": {"message": "failed"}})
+
+    provider = OpenAIModelProvider(api_key=_API_KEY, http_client=_make_client(handler), base_url=_BASE_URL)
+    with pytest.raises(OpenAIProviderError, match="503") as exc_info:
+        _collect_stream(provider, _sample_request())
+    assert exc_info.value.retryable is True
+    assert exc_info.value.status_code == 503
+
+
+def test_stream_malformed_chunk_raises() -> None:
+    """A non-JSON SSE data line raises OpenAIProviderError."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=b"data: not-json\n\n")
+
+    provider = OpenAIModelProvider(api_key=_API_KEY, http_client=_make_client(handler), base_url=_BASE_URL)
+    with pytest.raises(OpenAIProviderError, match="JSON"):
+        _collect_stream(provider, _sample_request())

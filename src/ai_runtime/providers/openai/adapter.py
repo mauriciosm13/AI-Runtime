@@ -1,14 +1,18 @@
 """OpenAI Chat Completions adapter implementing ModelProvider."""
 
+from collections.abc import AsyncIterator
 from typing import Any
+import json
 import httpx
-from ai_runtime.domain.generation import GenerationRequest, GenerationResponse, Message, MessageRole, TokenUsage
+from ai_runtime.domain.generation import GenerationDelta, GenerationRequest, GenerationResponse
+from ai_runtime.domain.generation import GenerationStreamEvent, Message, MessageRole, TokenUsage
 from ai_runtime.providers.openai.errors import OpenAIProviderError
+from ai_runtime.providers.sse import iter_sse_events
 
 _DEFAULT_OPENAI_API_URL = "https://api.openai.com/v1"
 
 
-def _to_openai_body(request: GenerationRequest) -> dict[str, Any]:
+def _to_openai_body(request: GenerationRequest, *, stream: bool = False) -> dict[str, Any]:
     """Map a GenerationRequest to an OpenAI Chat Completions JSON body."""
     body: dict[str, Any] = {
         "model": request.model,
@@ -18,7 +22,21 @@ def _to_openai_body(request: GenerationRequest) -> dict[str, Any]:
         body["temperature"] = request.temperature
     if request.max_output_tokens is not None:
         body["max_tokens"] = request.max_output_tokens
+    if stream:
+        body["stream"] = True
+        body["stream_options"] = {"include_usage": True}
     return body
+
+
+def _usage_from_openai_payload(usage_payload: object) -> TokenUsage | None:
+    """Parse OpenAI usage when both token counts are present and valid."""
+    if not isinstance(usage_payload, dict):
+        return None
+    prompt_tokens = usage_payload.get("prompt_tokens")
+    completion_tokens = usage_payload.get("completion_tokens")
+    if not isinstance(prompt_tokens, int) or not isinstance(completion_tokens, int):
+        raise OpenAIProviderError("OpenAI response usage is invalid")
+    return TokenUsage(input_tokens=prompt_tokens, output_tokens=completion_tokens)
 
 
 def _from_openai_payload(
@@ -45,14 +63,7 @@ def _from_openai_payload(
         content = message.get("content")
         if not isinstance(content, str):
             raise OpenAIProviderError("OpenAI response message is missing content")
-        usage_payload = payload.get("usage")
-        usage: TokenUsage | None = None
-        if isinstance(usage_payload, dict):
-            prompt_tokens = usage_payload.get("prompt_tokens")
-            completion_tokens = usage_payload.get("completion_tokens")
-            if not isinstance(prompt_tokens, int) or not isinstance(completion_tokens, int):
-                raise OpenAIProviderError("OpenAI response usage is invalid")
-            usage = TokenUsage(input_tokens=prompt_tokens, output_tokens=completion_tokens)
+        usage = _usage_from_openai_payload(payload.get("usage"))
         return GenerationResponse(
             id=response_id,
             model=model,
@@ -106,3 +117,66 @@ class OpenAIModelProvider:
         if not isinstance(payload, dict):
             raise OpenAIProviderError("OpenAI response body must be a JSON object")
         return _from_openai_payload(payload, request)
+
+    async def stream(self, request: GenerationRequest) -> AsyncIterator[GenerationStreamEvent]:
+        """Invoke OpenAI Chat Completions streaming and yield domain events."""
+        url = f"{self._base_url}/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {self._api_key}",
+            "Content-Type": "application/json",
+        }
+        body = _to_openai_body(request, stream=True)
+        try:
+            async with self._http_client.stream("POST", url, json=body, headers=headers) as response:
+                if response.status_code >= 400:
+                    await response.aread()
+                    raise OpenAIProviderError.from_http_status(
+                        f"OpenAI HTTP request failed with status {response.status_code}",
+                        response.status_code,
+                    )
+                response_id = ""
+                model = request.model
+                assembled: list[str] = []
+                usage: TokenUsage | None = None
+                async for _event_name, data in iter_sse_events(response):
+                    if data == "[DONE]":
+                        break
+                    try:
+                        payload = json.loads(data)
+                    except json.JSONDecodeError as err:
+                        raise OpenAIProviderError("OpenAI stream chunk is not valid JSON") from err
+                    if not isinstance(payload, dict):
+                        raise OpenAIProviderError("OpenAI stream chunk must be a JSON object")
+                    chunk_id = payload.get("id")
+                    if isinstance(chunk_id, str) and chunk_id.strip():
+                        response_id = chunk_id
+                    chunk_model = payload.get("model")
+                    if isinstance(chunk_model, str) and chunk_model.strip():
+                        model = chunk_model
+                    choices = payload.get("choices")
+                    if isinstance(choices, list) and choices:
+                        first_choice = choices[0]
+                        if not isinstance(first_choice, dict):
+                            raise OpenAIProviderError("OpenAI stream choice is invalid")
+                        delta = first_choice.get("delta")
+                        if isinstance(delta, dict):
+                            content = delta.get("content")
+                            if isinstance(content, str) and content:
+                                if not response_id.strip():
+                                    raise OpenAIProviderError("OpenAI stream is missing a valid id")
+                                assembled.append(content)
+                                yield GenerationDelta(id=response_id, model=model, content=content)
+                    if "usage" in payload:
+                        usage = _usage_from_openai_payload(payload.get("usage"))
+        except OpenAIProviderError:
+            raise
+        except httpx.HTTPError as err:
+            raise OpenAIProviderError.transient("OpenAI HTTP request failed") from err
+        if not response_id.strip():
+            raise OpenAIProviderError("OpenAI stream is missing a valid id")
+        yield GenerationResponse(
+            id=response_id,
+            model=model,
+            output=Message(role=MessageRole.ASSISTANT, content="".join(assembled)),
+            usage=usage,
+        )

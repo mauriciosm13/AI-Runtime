@@ -1,13 +1,18 @@
 """Provider-neutral model response endpoint."""
 
+import json
 import re
-from typing import Annotated
+from collections.abc import AsyncIterator
+from typing import Annotated, Any
 from fastapi import APIRouter, Header
+from fastapi.responses import StreamingResponse
 from ai_runtime.api.dependencies import AuthenticatedPrincipalDep, CreateResponseDep, RequestIdDep
 from ai_runtime.api.errors import APIError, ErrorCode
 from ai_runtime.api.schemas.errors import ErrorResponseSchema
 from ai_runtime.api.schemas.responses import CreateResponseRequest, ResponseSchema
 from ai_runtime.application.responses.create_response import CreateResponseCommand
+from ai_runtime.domain.generation import GenerationDelta, GenerationStreamEvent
+from ai_runtime.providers.errors import ProviderError
 
 router = APIRouter(tags=["responses"])
 
@@ -35,10 +40,40 @@ def _parse_idempotency_key(raw: str | None) -> str | None:
     return value
 
 
+def _sse_message(event: str, payload: dict[str, Any]) -> str:
+    """Serialize one Server-Sent Event."""
+    return f"event: {event}\ndata: {json.dumps(payload, separators=(',', ':'), ensure_ascii=True)}\n\n"
+
+
+def _format_stream_event(event: GenerationStreamEvent) -> str:
+    """Map a domain stream event to an SSE frame."""
+    if isinstance(event, GenerationDelta):
+        return _sse_message(
+            "response.delta",
+            {"id": event.id, "model": event.model, "delta": {"content": event.content}},
+        )
+    return _sse_message("response.completed", ResponseSchema.from_domain(event).model_dump())
+
+
+def _format_stream_error(err: ProviderError, request_id: str) -> str:
+    """Map a post-start provider failure to a response.error SSE frame."""
+    return _sse_message(
+        "response.error",
+        {
+            "error": {
+                "code": ErrorCode.PROVIDER_ERROR.value,
+                "message": str(err),
+                "request_id": request_id,
+            }
+        },
+    )
+
+
 @router.post(
     "/responses",
-    response_model=ResponseSchema,
+    response_model=None,
     responses={
+        200: {"model": ResponseSchema, "description": "Completed non-streaming response or SSE stream"},
         400: {"model": ErrorResponseSchema, "description": "Requested model is not in the routing catalog"},
         401: {"model": ErrorResponseSchema, "description": "Missing or invalid API key"},
         403: {"model": ErrorResponseSchema, "description": "Organization suspended or model not entitled"},
@@ -54,15 +89,39 @@ async def post_responses(
     principal: AuthenticatedPrincipalDep,
     request_id: RequestIdDep,
     idempotency_key_header: Annotated[str | None, Header(alias=_IDEMPOTENCY_KEY_HEADER)] = None,
-) -> ResponseSchema:
+) -> ResponseSchema | StreamingResponse:
     """Create a provider-neutral model response and record usage accounting."""
-    result = await use_case.execute(
-        CreateResponseCommand(
-            request=body.to_domain(),
-            request_id=request_id,
-            organization_id=principal.organization_id,
-            api_key_id=principal.api_key_id,
-            idempotency_key=_parse_idempotency_key(idempotency_key_header),
-        )
+    command = CreateResponseCommand(
+        request=body.to_domain(),
+        request_id=request_id,
+        organization_id=principal.organization_id,
+        api_key_id=principal.api_key_id,
+        idempotency_key=_parse_idempotency_key(idempotency_key_header),
     )
-    return ResponseSchema.from_domain(result)
+    if not body.stream:
+        result = await use_case.execute(command)
+        return ResponseSchema.from_domain(result)
+
+    iterator = use_case.stream(command)
+    try:
+        first = await anext(iterator)
+    except StopAsyncIteration as err:
+        raise ProviderError("Provider stream completed without a response") from err
+
+    async def events() -> AsyncIterator[str]:
+        pending: GenerationStreamEvent | None = first
+        try:
+            while pending is not None:
+                yield _format_stream_event(pending)
+                try:
+                    pending = await anext(iterator)
+                except StopAsyncIteration:
+                    pending = None
+        except ProviderError as err:
+            yield _format_stream_error(err, request_id)
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache"},
+    )
