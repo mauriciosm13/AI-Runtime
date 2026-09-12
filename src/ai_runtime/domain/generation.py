@@ -41,6 +41,7 @@ class GenerationRequest:
     messages: tuple[Message, ...]
     temperature: float | None = None
     max_output_tokens: int | None = None
+    stream: bool = False
 
     def __post_init__(self) -> None:
         _require_non_blank(self.model, "model")
@@ -85,3 +86,21 @@ class GenerationResponse:
         _require_non_blank(self.model, "model")
         if self.output.role is not MessageRole.ASSISTANT:
             raise DomainValidationError("output message role must be assistant")
+
+
+@dataclass(frozen=True, slots=True)
+class GenerationDelta:
+    """An incremental assistant-text update from a streaming generation."""
+
+    id: str
+    model: str
+    content: str
+
+    def __post_init__(self) -> None:
+        _require_non_blank(self.id, "id")
+        _require_non_blank(self.model, "model")
+        if self.content == "":
+            raise DomainValidationError("content must not be empty")
+
+
+GenerationStreamEvent = GenerationDelta | GenerationResponse

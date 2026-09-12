@@ -23,3 +23,6 @@ htmlcov/
 
 # Local environment overrides
 .env
+
+# AI Software Company operating files (workflow state, not product source)
+ai-company/

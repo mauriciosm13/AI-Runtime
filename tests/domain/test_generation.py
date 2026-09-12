@@ -1,7 +1,8 @@
 """Unit tests for provider-neutral generation domain contracts."""
 
 import pytest
-from ai_runtime.domain.generation import DomainValidationError, GenerationRequest, GenerationResponse, Message, MessageRole, TokenUsage
+from ai_runtime.domain.generation import DomainValidationError, GenerationDelta, GenerationRequest
+from ai_runtime.domain.generation import GenerationResponse, Message, MessageRole, TokenUsage
 
 
 def test_valid_message_request_and_response() -> None:
@@ -24,6 +25,7 @@ def test_valid_message_request_and_response() -> None:
     assert request.messages == (user,)
     assert request.temperature == 0.7
     assert request.max_output_tokens == 128
+    assert request.stream is False
     assert response.id == "resp_1"
     assert response.output.role is MessageRole.ASSISTANT
     assert response.usage is usage
@@ -82,3 +84,20 @@ def test_rejects_non_assistant_output() -> None:
             model="gpt-test",
             output=Message(role=MessageRole.USER, content="not assistant"),
         )
+
+
+def test_generation_request_accepts_stream_flag() -> None:
+    """stream defaults to false and can be enabled explicitly."""
+    message = Message(role=MessageRole.USER, content="Hello")
+    assert GenerationRequest(model="gpt-test", messages=(message,)).stream is False
+    assert GenerationRequest(model="gpt-test", messages=(message,), stream=True).stream is True
+
+
+def test_generation_delta_requires_non_empty_content() -> None:
+    """Deltas must include id, model, and non-empty content."""
+    delta = GenerationDelta(id="resp_1", model="gpt-test", content="Hi")
+    assert delta.content == "Hi"
+    with pytest.raises(DomainValidationError, match="content"):
+        GenerationDelta(id="resp_1", model="gpt-test", content="")
+    with pytest.raises(DomainValidationError, match="id"):
+        GenerationDelta(id="  ", model="gpt-test", content="Hi")

@@ -17,7 +17,7 @@ from ai_runtime.application.policy.enforce_organization_policy import EnforceOrg
 from ai_runtime.application.resilience.provider_executor import ProviderExecutor
 from ai_runtime.application.responses.create_response import CreateResponse
 from ai_runtime.application.routing.model_router import ModelRouter
-from ai_runtime.domain.generation import GenerationRequest, GenerationResponse, Message, MessageRole, TokenUsage
+from ai_runtime.domain.generation import GenerationDelta, GenerationRequest, GenerationResponse, Message, MessageRole, TokenUsage
 from ai_runtime.domain.organization_policy import ModelEntitlement, OrganizationPolicy
 from ai_runtime.ports.idempotency_store import IdempotencyCompleted, IdempotencyInProgress, IdempotencyMiss
 from ai_runtime.ports.rate_limiter import RateLimitDecision
@@ -29,10 +29,16 @@ from tests.application.responses.test_create_response import FakeCostEstimator, 
 class FakeModelProvider:
     """Deterministic provider fake for API tests."""
 
-    def __init__(self, response: GenerationResponse | None = None, error: Exception | None = None) -> None:
+    def __init__(
+        self,
+        response: GenerationResponse | None = None,
+        error: Exception | None = None,
+        error_after_delta: Exception | None = None,
+    ) -> None:
         self.requests: list[GenerationRequest] = []
         self._response = response
         self._error = error
+        self._error_after_delta = error_after_delta
 
     async def generate(self, request: GenerationRequest) -> GenerationResponse:
         self.requests.append(request)
@@ -40,6 +46,14 @@ class FakeModelProvider:
             raise self._error
         assert self._response is not None
         return self._response
+
+    async def stream(self, request: GenerationRequest) -> AsyncIterator[GenerationDelta | GenerationResponse]:
+        response = await self.generate(request)
+        if response.output.content:
+            yield GenerationDelta(id=response.id, model=response.model, content=response.output.content)
+        if self._error_after_delta is not None:
+            raise self._error_after_delta
+        yield response
 
 
 def _success_response(*, usage: TokenUsage | None = TokenUsage(input_tokens=10, output_tokens=5)) -> GenerationResponse:
@@ -344,7 +358,7 @@ def test_post_responses_returns_422_for_missing_messages() -> None:
 def test_post_responses_returns_422_for_unknown_fields() -> None:
     """Unknown body fields are rejected because the schema forbids extras."""
     client = _client_with_provider(FakeModelProvider(response=_success_response()))
-    response = client.post("/v1/responses", json=_request_body(stream=True))
+    response = client.post("/v1/responses", json=_request_body(unexpected_field=True))
     assert response.status_code == 422
 
 
@@ -619,3 +633,67 @@ def test_create_app_stores_http_client_in_lifespan() -> None:
         response = client.get("/health")
         assert response.status_code == 200
         assert isinstance(captured["client"], httpx.AsyncClient)
+
+
+def test_post_responses_stream_false_keeps_json_contract() -> None:
+    """Explicit stream=false still returns the JSON ResponseSchema."""
+    provider = FakeModelProvider(response=_success_response())
+    client = _client_with_provider(provider)
+    response = client.post("/v1/responses", json=_request_body(stream=False))
+    assert response.status_code == 200
+    assert response.json()["output"]["content"] == "Hi"
+
+
+def test_post_responses_stream_returns_sse_events_and_records_usage() -> None:
+    """stream=true returns SSE deltas plus completed and persists usage."""
+    provider = FakeModelProvider(response=_success_response())
+    records = FakeUsageRepository()
+    client = _client_with_provider(provider, usage_records=records)
+    response = client.post("/v1/responses", json=_request_body(stream=True))
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    assert REQUEST_ID_HEADER in response.headers
+    assert "event: response.delta" in response.text
+    assert "event: response.completed" in response.text
+    assert '"content":"Hi"' in response.text
+    assert len(records.added) == 1
+    assert provider.requests[0].stream is True
+
+
+def test_post_responses_stream_rejects_idempotency_key() -> None:
+    """Idempotency-Key is not accepted on streaming requests."""
+    provider = FakeModelProvider(response=_success_response())
+    client = _client_with_provider(provider)
+    response = client.post(
+        "/v1/responses",
+        json=_request_body(stream=True),
+        headers={"Idempotency-Key": "key-1"},
+    )
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "invalid_request"
+    assert provider.requests == []
+
+
+def test_post_responses_stream_pre_start_provider_error_is_json() -> None:
+    """Provider failures before the first SSE event stay on the JSON error envelope."""
+    provider = FakeModelProvider(error=ProviderError("generation failed"))
+    client = _client_with_provider(provider)
+    response = client.post("/v1/responses", json=_request_body(stream=True))
+    assert response.status_code == 502
+    assert response.json()["error"]["code"] == "provider_error"
+
+
+def test_post_responses_stream_emits_error_event_after_delta() -> None:
+    """Provider failures after the first event become response.error and skip usage."""
+    provider = FakeModelProvider(
+        response=_success_response(),
+        error_after_delta=ProviderError("generation failed"),
+    )
+    records = FakeUsageRepository()
+    client = _client_with_provider(provider, usage_records=records)
+    response = client.post("/v1/responses", json=_request_body(stream=True))
+    assert response.status_code == 200
+    assert "event: response.delta" in response.text
+    assert "event: response.error" in response.text
+    assert '"code":"provider_error"' in response.text
+    assert records.added == []

@@ -1,9 +1,12 @@
 """Anthropic Messages API adapter implementing ModelProvider."""
 
+from collections.abc import AsyncIterator
 from typing import Any
+import json
 import httpx
-from ai_runtime.domain.generation import GenerationRequest, GenerationResponse, Message, MessageRole, TokenUsage
+from ai_runtime.domain.generation import GenerationDelta, GenerationRequest, GenerationResponse, Message, MessageRole, TokenUsage
 from ai_runtime.providers.anthropic.errors import AnthropicProviderError
+from ai_runtime.providers.sse import iter_sse_events
 
 _DEFAULT_ANTHROPIC_BASE_URL = "https://api.anthropic.com"
 _ANTHROPIC_API_VERSION = "2023-06-01"
@@ -23,7 +26,7 @@ def _split_system_messages(request: GenerationRequest) -> tuple[str | None, list
     return system, conversation
 
 
-def _to_anthropic_body(request: GenerationRequest) -> dict[str, Any]:
+def _to_anthropic_body(request: GenerationRequest, *, stream: bool = False) -> dict[str, Any]:
     """Map a GenerationRequest to an Anthropic Messages JSON body."""
     system, conversation = _split_system_messages(request)
     if not conversation:
@@ -38,7 +41,20 @@ def _to_anthropic_body(request: GenerationRequest) -> dict[str, Any]:
         body["system"] = system
     if request.temperature is not None:
         body["temperature"] = request.temperature
+    if stream:
+        body["stream"] = True
     return body
+
+
+def _usage_from_anthropic_payload(usage_payload: object) -> TokenUsage | None:
+    """Parse Anthropic usage when both token counts are present and valid."""
+    if not isinstance(usage_payload, dict):
+        return None
+    input_tokens = usage_payload.get("input_tokens")
+    output_tokens = usage_payload.get("output_tokens")
+    if not isinstance(input_tokens, int) or not isinstance(output_tokens, int):
+        raise AnthropicProviderError("Anthropic response usage is invalid")
+    return TokenUsage(input_tokens=input_tokens, output_tokens=output_tokens)
 
 
 def _text_from_content_blocks(content_blocks: object) -> str:
@@ -73,14 +89,7 @@ def _from_anthropic_payload(
         if not isinstance(model, str) or not model.strip():
             model = request.model
         content = _text_from_content_blocks(payload.get("content"))
-        usage_payload = payload.get("usage")
-        usage: TokenUsage | None = None
-        if isinstance(usage_payload, dict):
-            input_tokens = usage_payload.get("input_tokens")
-            output_tokens = usage_payload.get("output_tokens")
-            if not isinstance(input_tokens, int) or not isinstance(output_tokens, int):
-                raise AnthropicProviderError("Anthropic response usage is invalid")
-            usage = TokenUsage(input_tokens=input_tokens, output_tokens=output_tokens)
+        usage = _usage_from_anthropic_payload(payload.get("usage"))
         return GenerationResponse(
             id=response_id,
             model=model,
@@ -135,3 +144,81 @@ class AnthropicModelProvider:
         if not isinstance(payload, dict):
             raise AnthropicProviderError("Anthropic response body must be a JSON object")
         return _from_anthropic_payload(payload, request)
+
+    async def stream(self, request: GenerationRequest) -> AsyncIterator[GenerationDelta | GenerationResponse]:
+        """Invoke Anthropic Messages streaming and yield domain events."""
+        url = f"{self._base_url}/v1/messages"
+        headers = {
+            "x-api-key": self._api_key,
+            "anthropic-version": _ANTHROPIC_API_VERSION,
+            "Content-Type": "application/json",
+        }
+        body = _to_anthropic_body(request, stream=True)
+        try:
+            async with self._http_client.stream("POST", url, json=body, headers=headers) as response:
+                if response.status_code >= 400:
+                    await response.aread()
+                    raise AnthropicProviderError.from_http_status(
+                        f"Anthropic HTTP request failed with status {response.status_code}",
+                        response.status_code,
+                    )
+                response_id = ""
+                model = request.model
+                assembled: list[str] = []
+                input_tokens: int | None = None
+                output_tokens: int | None = None
+                async for event_name, data in iter_sse_events(response):
+                    try:
+                        payload = json.loads(data)
+                    except json.JSONDecodeError as err:
+                        raise AnthropicProviderError("Anthropic stream chunk is not valid JSON") from err
+                    if not isinstance(payload, dict):
+                        raise AnthropicProviderError("Anthropic stream chunk must be a JSON object")
+                    event_type = event_name or payload.get("type")
+                    if event_type == "message_start":
+                        message = payload.get("message")
+                        if not isinstance(message, dict):
+                            raise AnthropicProviderError("Anthropic stream message_start is invalid")
+                        chunk_id = message.get("id")
+                        if isinstance(chunk_id, str) and chunk_id.strip():
+                            response_id = chunk_id
+                        chunk_model = message.get("model")
+                        if isinstance(chunk_model, str) and chunk_model.strip():
+                            model = chunk_model
+                        usage_payload = message.get("usage")
+                        if isinstance(usage_payload, dict):
+                            raw_input = usage_payload.get("input_tokens")
+                            if isinstance(raw_input, int):
+                                input_tokens = raw_input
+                    elif event_type == "content_block_delta":
+                        delta = payload.get("delta")
+                        if isinstance(delta, dict) and delta.get("type") == "text_delta":
+                            text = delta.get("text")
+                            if isinstance(text, str) and text:
+                                if not response_id.strip():
+                                    raise AnthropicProviderError("Anthropic stream is missing a valid id")
+                                assembled.append(text)
+                                yield GenerationDelta(id=response_id, model=model, content=text)
+                    elif event_type == "message_delta":
+                        usage_payload = payload.get("usage")
+                        if isinstance(usage_payload, dict):
+                            raw_output = usage_payload.get("output_tokens")
+                            if isinstance(raw_output, int):
+                                output_tokens = raw_output
+        except AnthropicProviderError:
+            raise
+        except httpx.HTTPError as err:
+            raise AnthropicProviderError.transient("Anthropic HTTP request failed") from err
+        if not response_id.strip():
+            raise AnthropicProviderError("Anthropic stream is missing a valid id")
+        usage = None
+        if input_tokens is not None and output_tokens is not None:
+            usage = TokenUsage(input_tokens=input_tokens, output_tokens=output_tokens)
+        elif input_tokens is not None or output_tokens is not None:
+            raise AnthropicProviderError("Anthropic response usage is invalid")
+        yield GenerationResponse(
+            id=response_id,
+            model=model,
+            output=Message(role=MessageRole.ASSISTANT, content="".join(assembled)),
+            usage=usage,
+        )

@@ -5,7 +5,7 @@ import json
 from collections.abc import Callable
 import httpx
 import pytest
-from ai_runtime.domain.generation import GenerationRequest, Message, MessageRole
+from ai_runtime.domain.generation import GenerationDelta, GenerationRequest, GenerationResponse, Message, MessageRole
 from ai_runtime.ports.model_provider import ModelProvider
 from ai_runtime.providers.gemini import GeminiModelProvider, GeminiProviderError
 
@@ -251,3 +251,59 @@ def test_falls_back_to_request_model_when_model_version_missing() -> None:
     )
     response = asyncio.run(provider.generate(_sample_request()))
     assert response.model == _MODEL
+
+
+def _gemini_sse_body() -> bytes:
+    chunks = [
+        {
+            "responseId": "resp_123",
+            "modelVersion": _MODEL,
+            "candidates": [{"content": {"role": "model", "parts": [{"text": "Hi"}]}}],
+        },
+        {
+            "responseId": "resp_123",
+            "modelVersion": _MODEL,
+            "candidates": [{"content": {"role": "model", "parts": [{"text": " there"}]}}],
+            "usageMetadata": {"promptTokenCount": 10, "candidatesTokenCount": 4},
+        },
+    ]
+    return "".join(f"data: {json.dumps(chunk)}\n\n" for chunk in chunks).encode()
+
+
+def _collect_stream(provider: GeminiModelProvider, request: GenerationRequest) -> list[object]:
+    async def _run() -> list[object]:
+        return [event async for event in provider.stream(request)]
+
+    return asyncio.run(_run())
+
+
+def test_stream_maps_gemini_sse_chunks_to_domain_events() -> None:
+    """Gemini streamGenerateContent chunks assemble into a completed response."""
+    captured: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["url"] = str(request.url)
+        captured["body"] = json.loads(request.content.decode())
+        return httpx.Response(200, content=_gemini_sse_body(), headers={"Content-Type": "text/event-stream"})
+
+    provider = GeminiModelProvider(api_key=_API_KEY, http_client=_make_client(handler), base_url=_BASE_URL)
+    events = _collect_stream(provider, _sample_request())
+    assert captured["url"] == f"{_BASE_URL}/v1beta/models/{_MODEL}:streamGenerateContent?alt=sse"
+    assert isinstance(events[0], GenerationDelta)
+    assert events[0].content == "Hi"
+    assert isinstance(events[-1], GenerationResponse)
+    assert events[-1].output.content == "Hi there"
+    assert events[-1].usage is not None
+    assert events[-1].usage.total_tokens == 14
+
+
+def test_stream_http_error_status_sets_retryable_flag() -> None:
+    """Streaming HTTP failures classify retryable vs non-retryable errors."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(429, json={"error": {"message": "failed"}})
+
+    provider = GeminiModelProvider(api_key=_API_KEY, http_client=_make_client(handler), base_url=_BASE_URL)
+    with pytest.raises(GeminiProviderError, match="429") as exc_info:
+        _collect_stream(provider, _sample_request())
+    assert exc_info.value.retryable is True

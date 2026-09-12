@@ -1,10 +1,10 @@
 """Execute provider generation with bounded retries and cross-provider failover."""
 
 import asyncio
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass, replace
 from ai_runtime.application.routing.model_router import ModelRouter, ProviderNotRegisteredError
-from ai_runtime.domain.generation import GenerationRequest, GenerationResponse
+from ai_runtime.domain.generation import GenerationRequest, GenerationResponse, GenerationStreamEvent
 from ai_runtime.domain.organization_policy import ModelNotAvailableError
 from ai_runtime.domain.routing import DEFAULT_FAILOVER_CATALOG, ModelRoute, resolve_model_route, resolve_route_chain
 from ai_runtime.ports.model_provider import ModelProvider
@@ -18,6 +18,19 @@ class ProviderExecutionResult:
     """Successful provider generation bound to the route that served it."""
 
     response: GenerationResponse
+    route: ModelRoute
+
+    @property
+    def provider_name(self) -> str:
+        """Provider identifier recorded on usage and cost estimates."""
+        return self.route.provider
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderStreamEvent:
+    """A streamed generation event bound to the route that produced it."""
+
+    payload: GenerationStreamEvent
     route: ModelRoute
 
     @property
@@ -83,6 +96,50 @@ class ProviderExecutor:
             raise ProviderNotRegisteredError(provider=skipped_unregistered[0])
         raise ProviderNotRegisteredError(provider=routes[0].provider)
 
+    async def stream(
+        self,
+        *,
+        requested_model: str,
+        request: GenerationRequest,
+        before_route: RouteHook | None = None,
+    ) -> AsyncIterator[ProviderStreamEvent]:
+        """Stream generation events, retrying and failing over only before the first event."""
+        routes = self._routes_for(requested_model)
+        last_error: ProviderError | None = None
+        skipped_unavailable: list[str] = []
+        skipped_unregistered: list[str] = []
+        for route in routes:
+            if before_route is not None:
+                try:
+                    await before_route(route)
+                except ModelNotAvailableError:
+                    skipped_unavailable.append(route.model)
+                    continue
+            try:
+                resolved = self._model_router.resolve(route.model)
+            except ProviderNotRegisteredError as err:
+                skipped_unregistered.append(err.provider)
+                continue
+            route_request = request if route.model == request.model else replace(request, model=route.model)
+            started = False
+            try:
+                async for event in self._stream_with_retries(resolved.provider, route_request):
+                    started = True
+                    yield ProviderStreamEvent(payload=event, route=resolved.route)
+                return
+            except ProviderError as err:
+                if started:
+                    raise
+                last_error = err
+                continue
+        if last_error is not None:
+            raise last_error
+        if skipped_unavailable and len(skipped_unavailable) == len(routes):
+            raise ModelNotAvailableError(model=requested_model)
+        if skipped_unregistered:
+            raise ProviderNotRegisteredError(provider=skipped_unregistered[0])
+        raise ProviderNotRegisteredError(provider=routes[0].provider)
+
     def _routes_for(self, requested_model: str) -> tuple[ModelRoute, ...]:
         catalog = self._model_router.catalog
         if not self._failover_enabled:
@@ -100,6 +157,26 @@ class ProviderExecutor:
                 return await provider.generate(request)
             except ProviderError as err:
                 if not err.retryable or attempt >= self._max_retries:
+                    raise
+                attempt += 1
+                if self._retry_base_delay_seconds > 0:
+                    await asyncio.sleep(self._retry_base_delay_seconds * attempt)
+
+    async def _stream_with_retries(
+        self,
+        provider: ModelProvider,
+        request: GenerationRequest,
+    ) -> AsyncIterator[GenerationStreamEvent]:
+        attempt = 0
+        while True:
+            started = False
+            try:
+                async for event in provider.stream(request):
+                    started = True
+                    yield event
+                return
+            except ProviderError as err:
+                if started or not err.retryable or attempt >= self._max_retries:
                     raise
                 attempt += 1
                 if self._retry_base_delay_seconds > 0:
