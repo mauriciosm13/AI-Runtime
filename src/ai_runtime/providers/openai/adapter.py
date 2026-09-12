@@ -5,27 +5,79 @@ from typing import Any
 import json
 import httpx
 from ai_runtime.domain.generation import GenerationDelta, GenerationRequest, GenerationResponse
-from ai_runtime.domain.generation import GenerationStreamEvent, Message, MessageRole, TokenUsage
+from ai_runtime.domain.generation import GenerationStreamEvent, Message, MessageRole, TokenUsage, ToolCall
 from ai_runtime.providers.openai.errors import OpenAIProviderError
 from ai_runtime.providers.sse import iter_sse_events
 
 _DEFAULT_OPENAI_API_URL = "https://api.openai.com/v1"
 
 
+def _to_openai_message(message: Message) -> dict[str, Any]:
+    """Map one domain message to an OpenAI Chat Completions message."""
+    if message.role is MessageRole.TOOL:
+        return {"role": "tool", "tool_call_id": message.tool_call_id, "content": message.content}
+    payload: dict[str, Any] = {"role": message.role.value, "content": message.content}
+    if message.tool_calls:
+        payload["content"] = message.content if message.content.strip() else None
+        payload["tool_calls"] = [
+            {
+                "id": call.id,
+                "type": "function",
+                "function": {"name": call.name, "arguments": call.arguments},
+            }
+            for call in message.tool_calls
+        ]
+    return payload
+
+
 def _to_openai_body(request: GenerationRequest, *, stream: bool = False) -> dict[str, Any]:
     """Map a GenerationRequest to an OpenAI Chat Completions JSON body."""
     body: dict[str, Any] = {
         "model": request.model,
-        "messages": [{"role": message.role.value, "content": message.content} for message in request.messages],
+        "messages": [_to_openai_message(message) for message in request.messages],
     }
     if request.temperature is not None:
         body["temperature"] = request.temperature
     if request.max_output_tokens is not None:
         body["max_tokens"] = request.max_output_tokens
+    if request.tools:
+        body["tools"] = [
+            {
+                "type": "function",
+                "function": {
+                    "name": tool.name,
+                    "description": tool.description,
+                    "parameters": tool.parameters,
+                },
+            }
+            for tool in request.tools
+        ]
     if stream:
         body["stream"] = True
         body["stream_options"] = {"include_usage": True}
     return body
+
+
+def _tool_calls_from_openai(raw_calls: object) -> tuple[ToolCall, ...]:
+    """Parse OpenAI tool_calls into domain ToolCall values."""
+    if raw_calls is None:
+        return ()
+    if not isinstance(raw_calls, list):
+        raise OpenAIProviderError("OpenAI response tool_calls is invalid")
+    calls: list[ToolCall] = []
+    for item in raw_calls:
+        if not isinstance(item, dict):
+            raise OpenAIProviderError("OpenAI response tool_calls is invalid")
+        call_id = item.get("id")
+        function = item.get("function")
+        if not isinstance(call_id, str) or not call_id.strip() or not isinstance(function, dict):
+            raise OpenAIProviderError("OpenAI response tool_calls is invalid")
+        name = function.get("name")
+        arguments = function.get("arguments")
+        if not isinstance(name, str) or not isinstance(arguments, str):
+            raise OpenAIProviderError("OpenAI response tool_calls is invalid")
+        calls.append(ToolCall(id=call_id, name=name, arguments=arguments))
+    return tuple(calls)
 
 
 def _usage_from_openai_payload(usage_payload: object) -> TokenUsage | None:
@@ -61,13 +113,18 @@ def _from_openai_payload(
         if not isinstance(message, dict):
             raise OpenAIProviderError("OpenAI response choice is missing message")
         content = message.get("content")
+        if content is None:
+            content = ""
         if not isinstance(content, str):
+            raise OpenAIProviderError("OpenAI response message is missing content")
+        tool_calls = _tool_calls_from_openai(message.get("tool_calls"))
+        if not content.strip() and not tool_calls:
             raise OpenAIProviderError("OpenAI response message is missing content")
         usage = _usage_from_openai_payload(payload.get("usage"))
         return GenerationResponse(
             id=response_id,
             model=model,
-            output=Message(role=MessageRole.ASSISTANT, content=content),
+            output=Message(role=MessageRole.ASSISTANT, content=content, tool_calls=tool_calls),
             usage=usage,
         )
     except OpenAIProviderError:
