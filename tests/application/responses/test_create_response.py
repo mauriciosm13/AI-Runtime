@@ -348,7 +348,7 @@ def test_create_response_replays_completed_idempotency_payload() -> None:
         {
             "id": "response-1",
             "model": "fake-model",
-            "output": {"role": "assistant", "content": "Hi"},
+            "output": {"role": "assistant", "content": "Hi", "tool_calls": []},
             "usage": {"input_tokens": 3, "output_tokens": 2},
         },
         separators=(",", ":"),
@@ -396,7 +396,7 @@ def test_create_response_completes_idempotency_after_success() -> None:
         {
             "id": "response-1",
             "model": "fake-model",
-            "output": {"role": "assistant", "content": "Hi"},
+            "output": {"role": "assistant", "content": "Hi", "tool_calls": []},
             "usage": {"input_tokens": 10, "output_tokens": 5},
         },
         separators=(",", ":"),
@@ -512,7 +512,7 @@ def test_create_response_idempotent_replay_skips_policy_enforcement() -> None:
         {
             "id": stored.id,
             "model": stored.model,
-            "output": {"role": stored.output.role.value, "content": stored.output.content},
+            "output": {"role": stored.output.role.value, "content": stored.output.content, "tool_calls": []},
             "usage": {"input_tokens": stored.usage.input_tokens, "output_tokens": stored.usage.output_tokens},
         },
         separators=(",", ":"),

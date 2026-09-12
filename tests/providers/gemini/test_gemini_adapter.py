@@ -5,7 +5,8 @@ import json
 from collections.abc import Callable
 import httpx
 import pytest
-from ai_runtime.domain.generation import GenerationDelta, GenerationRequest, GenerationResponse, Message, MessageRole
+from ai_runtime.domain.generation import GenerationDelta, GenerationRequest, GenerationResponse
+from ai_runtime.domain.generation import Message, MessageRole, ToolDefinition
 from ai_runtime.ports.model_provider import ModelProvider
 from ai_runtime.providers.gemini import GeminiModelProvider, GeminiProviderError
 
@@ -307,3 +308,29 @@ def test_stream_http_error_status_sets_retryable_flag() -> None:
     with pytest.raises(GeminiProviderError, match="429") as exc_info:
         _collect_stream(provider, _sample_request())
     assert exc_info.value.retryable is True
+
+
+def test_generate_maps_function_declarations_and_calls() -> None:
+    """Tool definitions and functionCall parts map through Gemini generateContent."""
+    captured: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(request.content.decode())
+        payload = _success_payload()
+        payload["candidates"] = [
+            {"content": {"role": "model", "parts": [{"functionCall": {"name": "get_weather", "args": {"city": "Lisbon"}}}]}}
+        ]
+        return httpx.Response(200, json=payload)
+
+    provider = GeminiModelProvider(api_key=_API_KEY, http_client=_make_client(handler), base_url=_BASE_URL)
+    request = GenerationRequest(
+        model=_MODEL,
+        messages=(Message(role=MessageRole.USER, content="Weather?"),),
+        tools=(ToolDefinition(name="get_weather", description="Weather", parameters={"type": "object"}),),
+    )
+    response = asyncio.run(provider.generate(request))
+    body = captured["body"]
+    assert isinstance(body, dict)
+    assert body["tools"][0]["functionDeclarations"][0]["name"] == "get_weather"
+    assert response.output.tool_calls[0].name == "get_weather"
+    assert response.output.tool_calls[0].arguments == '{"city":"Lisbon"}'

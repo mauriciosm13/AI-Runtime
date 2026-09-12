@@ -5,7 +5,8 @@ import json
 from collections.abc import Callable
 import httpx
 import pytest
-from ai_runtime.domain.generation import GenerationDelta, GenerationRequest, GenerationResponse, Message, MessageRole
+from ai_runtime.domain.generation import GenerationDelta, GenerationRequest, GenerationResponse
+from ai_runtime.domain.generation import Message, MessageRole, ToolDefinition
 from ai_runtime.ports.model_provider import ModelProvider
 from ai_runtime.providers.anthropic import AnthropicModelProvider, AnthropicProviderError
 
@@ -267,3 +268,27 @@ def test_stream_http_error_status_sets_retryable_flag() -> None:
     with pytest.raises(AnthropicProviderError, match="500") as exc_info:
         _collect_stream(provider, _sample_request())
     assert exc_info.value.retryable is True
+
+
+def test_generate_maps_tools_and_tool_use_blocks() -> None:
+    """Tool definitions and tool_use blocks map through Anthropic Messages."""
+    captured: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(request.content.decode())
+        payload = _success_payload()
+        payload["content"] = [{"type": "tool_use", "id": "call_1", "name": "get_weather", "input": {"city": "Lisbon"}}]
+        return httpx.Response(200, json=payload)
+
+    provider = AnthropicModelProvider(api_key=_API_KEY, http_client=_make_client(handler), base_url=_BASE_URL)
+    request = GenerationRequest(
+        model="claude-3-5-sonnet-20241022",
+        messages=(Message(role=MessageRole.USER, content="Weather?"),),
+        tools=(ToolDefinition(name="get_weather", description="Weather", parameters={"type": "object"}),),
+    )
+    response = asyncio.run(provider.generate(request))
+    body = captured["body"]
+    assert isinstance(body, dict)
+    assert body["tools"][0]["name"] == "get_weather"
+    assert response.output.tool_calls[0].id == "call_1"
+    assert response.output.tool_calls[0].arguments == '{"city":"Lisbon"}'

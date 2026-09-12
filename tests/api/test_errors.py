@@ -47,7 +47,7 @@ def test_domain_validation_error_uses_standard_envelope() -> None:
         response,
         status_code=422,
         code="invalid_request",
-        message="content must not be empty or blank",
+        message="Invalid value for 'messages.0': Value error, content must not be empty or blank.",
     )
 
 

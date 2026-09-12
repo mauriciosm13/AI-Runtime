@@ -4,7 +4,8 @@ from collections.abc import AsyncIterator
 from typing import Any
 import json
 import httpx
-from ai_runtime.domain.generation import GenerationDelta, GenerationRequest, GenerationResponse, Message, MessageRole, TokenUsage
+from ai_runtime.domain.generation import GenerationDelta, GenerationRequest, GenerationResponse
+from ai_runtime.domain.generation import Message, MessageRole, TokenUsage, ToolCall
 from ai_runtime.providers.gemini.errors import GeminiProviderError
 from ai_runtime.providers.sse import iter_sse_events
 
@@ -29,7 +30,37 @@ def _gemini_role(role: MessageRole) -> str:
     """Map a domain message role to a Gemini contents role."""
     if role is MessageRole.ASSISTANT:
         return "model"
+    if role is MessageRole.TOOL:
+        return "user"
     return role.value
+
+
+def _gemini_parts(message: Message) -> list[dict[str, Any]]:
+    """Map a domain message to Gemini content parts."""
+    if message.role is MessageRole.TOOL:
+        name = message.name if message.name is not None and message.name.strip() else message.tool_call_id
+        assert name is not None
+        try:
+            payload = json.loads(message.content)
+        except json.JSONDecodeError:
+            payload = {"result": message.content}
+        if not isinstance(payload, dict):
+            payload = {"result": message.content}
+        return [{"functionResponse": {"name": name, "response": payload}}]
+    if message.tool_calls:
+        parts: list[dict[str, Any]] = []
+        if message.content.strip():
+            parts.append({"text": message.content})
+        for call in message.tool_calls:
+            try:
+                args = json.loads(call.arguments)
+            except json.JSONDecodeError as err:
+                raise GeminiProviderError("tool call arguments must be valid JSON") from err
+            if not isinstance(args, dict):
+                raise GeminiProviderError("tool call arguments must be a JSON object")
+            parts.append({"functionCall": {"name": call.name, "args": args}})
+        return parts
+    return [{"text": message.content}]
 
 
 def _to_gemini_body(request: GenerationRequest) -> dict[str, Any]:
@@ -38,7 +69,7 @@ def _to_gemini_body(request: GenerationRequest) -> dict[str, Any]:
     if not conversation:
         raise GeminiProviderError("messages must contain at least one non-system message")
     body: dict[str, Any] = {
-        "contents": [{"role": _gemini_role(message.role), "parts": [{"text": message.content}]} for message in conversation],
+        "contents": [{"role": _gemini_role(message.role), "parts": _gemini_parts(message)} for message in conversation],
     }
     if system is not None:
         body["systemInstruction"] = {"parts": [{"text": system}]}
@@ -49,7 +80,40 @@ def _to_gemini_body(request: GenerationRequest) -> dict[str, Any]:
         generation_config["maxOutputTokens"] = request.max_output_tokens
     if generation_config:
         body["generationConfig"] = generation_config
+    if request.tools:
+        body["tools"] = [
+            {
+                "functionDeclarations": [
+                    {"name": tool.name, "description": tool.description, "parameters": tool.parameters} for tool in request.tools
+                ]
+            }
+        ]
     return body
+
+
+def _tool_calls_from_gemini(parts: object) -> tuple[ToolCall, ...]:
+    """Parse Gemini functionCall parts into domain ToolCall values."""
+    if not isinstance(parts, list):
+        return ()
+    calls: list[ToolCall] = []
+    for index, part in enumerate(parts):
+        if not isinstance(part, dict) or "functionCall" not in part:
+            continue
+        function_call = part.get("functionCall")
+        if not isinstance(function_call, dict):
+            raise GeminiProviderError("Gemini response functionCall is invalid")
+        name = function_call.get("name")
+        args = function_call.get("args")
+        if not isinstance(name, str) or not isinstance(args, dict):
+            raise GeminiProviderError("Gemini response functionCall is invalid")
+        calls.append(
+            ToolCall(
+                id=f"call_{index}_{name}",
+                name=name,
+                arguments=json.dumps(args, separators=(",", ":"), ensure_ascii=True),
+            )
+        )
+    return tuple(calls)
 
 
 def _text_from_parts(parts: object) -> str:
@@ -113,7 +177,11 @@ def _from_gemini_payload(
         content = first_candidate.get("content")
         if not isinstance(content, dict):
             raise GeminiProviderError("Gemini response candidate is missing content")
-        output_text = _text_from_parts(content.get("parts"))
+        parts = content.get("parts")
+        output_text = _optional_text_from_parts(parts)
+        tool_calls = _tool_calls_from_gemini(parts)
+        if not output_text.strip() and not tool_calls:
+            raise GeminiProviderError("Gemini response is missing text content")
         usage_payload = payload.get("usageMetadata")
         usage: TokenUsage | None = None
         if isinstance(usage_payload, dict):
@@ -125,7 +193,7 @@ def _from_gemini_payload(
         return GenerationResponse(
             id=response_id,
             model=model,
-            output=Message(role=MessageRole.ASSISTANT, content=output_text),
+            output=Message(role=MessageRole.ASSISTANT, content=output_text, tool_calls=tool_calls),
             usage=usage,
         )
     except GeminiProviderError:

@@ -94,7 +94,11 @@ When Redis is unavailable, idempotency fails open: the request proceeds without 
 
 Clients send a catalog model name (`model`). The runtime selects the provider through `ModelRouter`; clients do not name a vendor. The catalog maps `gpt-4o` and `gpt-4o-mini` to OpenAI, `claude-3-5-sonnet-20241022` to Anthropic, and `gemini-2.5-flash` to Gemini when those adapters are registered.
 
-Clients send `model`, `messages`, optional `temperature` / `max_output_tokens`, and optional `stream` (default `false`).
+Clients send `model`, `messages`, optional `temperature` / `max_output_tokens`, optional `stream` (default `false`), and optional `tools`.
+
+`tools` is a list of `{name, description, parameters}` where `parameters` is a JSON Schema object. The runtime does not execute tools. When the model requests a call, `output.tool_calls` contains `{id, name, arguments}`. Clients send results as `role: tool` messages with `tool_call_id`.
+
+`stream: true` combined with `tools` or tool messages is rejected (`422` / `invalid_request`) in this slice. MCP tool servers are a later roadmap item.
 
 When `stream` is omitted or `false`, a successful call returns `200` JSON with `id`, `model`, `output`, and `usage`.
 

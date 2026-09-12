@@ -2,7 +2,7 @@
 
 import pytest
 from ai_runtime.domain.generation import DomainValidationError, GenerationDelta, GenerationRequest
-from ai_runtime.domain.generation import GenerationResponse, Message, MessageRole, TokenUsage
+from ai_runtime.domain.generation import GenerationResponse, Message, MessageRole, TokenUsage, ToolCall, ToolDefinition
 
 
 def test_valid_message_request_and_response() -> None:
@@ -101,3 +101,26 @@ def test_generation_delta_requires_non_empty_content() -> None:
         GenerationDelta(id="resp_1", model="gpt-test", content="")
     with pytest.raises(DomainValidationError, match="id"):
         GenerationDelta(id="  ", model="gpt-test", content="Hi")
+
+
+def test_tool_message_requires_tool_call_id() -> None:
+    """Tool result messages must include tool_call_id and content."""
+    with pytest.raises(DomainValidationError, match="tool_call_id"):
+        Message(role=MessageRole.TOOL, content="72")
+    tool = Message(role=MessageRole.TOOL, content="72", tool_call_id="call_1")
+    assert tool.tool_call_id == "call_1"
+
+
+def test_assistant_may_have_empty_content_with_tool_calls() -> None:
+    """Assistant messages may omit text when they contain tool_calls."""
+    call = ToolCall(id="call_1", name="get_weather", arguments='{"city":"Lisbon"}')
+    message = Message(role=MessageRole.ASSISTANT, content="", tool_calls=(call,))
+    assert message.tool_calls == (call,)
+
+
+def test_stream_rejects_tools() -> None:
+    """Streaming requests cannot include tools in this slice."""
+    message = Message(role=MessageRole.USER, content="Hello")
+    tool = ToolDefinition(name="get_weather", parameters={"type": "object"})
+    with pytest.raises(DomainValidationError, match="tools"):
+        GenerationRequest(model="gpt-test", messages=(message,), stream=True, tools=(tool,))
