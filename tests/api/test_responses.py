@@ -28,8 +28,8 @@ from ai_runtime.ports.rate_limiter import RateLimitDecision
 from ai_runtime.providers.openai.errors import ProviderError
 from tests.application.prompts.fakes import FakePromptRepository, override_resolve_prompt
 from tests.application.policy.test_enforce_organization_policy import FakeOrganizationPolicyRepository
-from tests.application.responses.test_create_response import FakeCostEstimator, FakeIdempotencyStore, FakeRateLimiter, FakeUsageRepository
-from tests.application.responses.test_create_response import FakeResponseCache
+from tests.application.responses.test_create_response import FakeAuditRepository, FakeCostEstimator, FakeIdempotencyStore
+from tests.application.responses.test_create_response import FakeMetrics, FakeRateLimiter, FakeResponseCache, FakeUsageRepository
 
 
 class FakeModelProvider:
@@ -125,6 +125,8 @@ def _client_with_provider(
             store,
             enforce_policy,
             cache,
+            FakeMetrics(),
+            FakeAuditRepository(),
         )
 
     async def override_principal() -> AuthenticatedPrincipal:
@@ -188,6 +190,8 @@ def test_post_responses_records_usage_with_request_id() -> None:
             FakeIdempotencyStore(),
             EnforceOrganizationPolicy(policies, records),
             FakeResponseCache(),
+            FakeMetrics(),
+            FakeAuditRepository(),
         )
 
     async def override_principal() -> AuthenticatedPrincipal:

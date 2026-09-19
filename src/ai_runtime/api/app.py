@@ -5,10 +5,12 @@ from ai_runtime.api.dependencies import application_lifespan
 from ai_runtime.api.exception_handlers import register_exception_handlers
 from ai_runtime.api.middleware.request_context import register_request_context_middleware
 from ai_runtime.api.routes.health import router as health_router
+from ai_runtime.api.routes.metrics import router as metrics_router
 from ai_runtime.api.routes.prompts import router as prompts_router
 from ai_runtime.api.routes.responses import router as responses_router
 from ai_runtime.config.settings import Settings
 from ai_runtime.telemetry.logging import configure_logging
+from ai_runtime.telemetry.metrics import InProcessMetrics
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -27,9 +29,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lifespan=application_lifespan,
     )
     app.state.settings = resolved
+    app.state.metrics = InProcessMetrics()
     register_request_context_middleware(app)
     register_exception_handlers(app)
     app.include_router(health_router)
+    app.include_router(metrics_router)
     app.include_router(responses_router, prefix="/v1")
     app.include_router(prompts_router, prefix="/v1")
     return app

@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 REQUEST_LOGGER_NAME = "ai_runtime.request"
-_STRUCTURED_FIELDS = frozenset({"request_id", "method", "path", "status_code", "duration_ms"})
+_STRUCTURED_FIELDS = frozenset({"request_id", "trace_id", "span", "method", "path", "status_code", "duration_ms"})
 
 
 class JsonFormatter(logging.Formatter):

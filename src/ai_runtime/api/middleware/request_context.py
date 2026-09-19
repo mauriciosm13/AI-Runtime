@@ -69,7 +69,7 @@ class RequestContextMiddleware:
 
         _request_logger.info(
             "request_started",
-            extra={"request_id": request_id, "method": method, "path": path},
+            extra={"request_id": request_id, "trace_id": request_id, "span": "http", "method": method, "path": path},
         )
 
         def log_request_completed() -> None:
@@ -82,12 +82,22 @@ class RequestContextMiddleware:
                 "request_completed",
                 extra={
                     "request_id": request_id,
+                    "trace_id": request_id,
+                    "span": "http",
                     "method": method,
                     "path": path,
                     "status_code": status_code,
                     "duration_ms": duration_ms,
                 },
             )
+            app = scope.get("app")
+            metrics = getattr(getattr(app, "state", None), "metrics", None)
+            if metrics is not None:
+                metrics.increment(
+                    "http_requests_total",
+                    {"method": method, "path": path, "status": str(status_code)},
+                )
+                metrics.observe("http_request_duration_seconds", duration_ms / 1000.0, {"method": method, "path": path})
 
         async def send_with_request_id(message: Message) -> None:
             nonlocal status_code

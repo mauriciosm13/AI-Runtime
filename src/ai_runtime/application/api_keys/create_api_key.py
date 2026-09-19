@@ -4,9 +4,11 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 from ai_runtime.domain.api_key import ApiKey, ApiKeyMetadata, ApiKeyStatus
+from ai_runtime.domain.audit import AuditEvent
 from ai_runtime.domain.organization import OrganizationNotFoundError
 from ai_runtime.ports.api_key_hasher import ApiKeyHasher
 from ai_runtime.ports.api_key_repository import ApiKeyRepository
+from ai_runtime.ports.audit_repository import AuditRepository
 from ai_runtime.ports.organization_repository import OrganizationRepository
 
 
@@ -38,10 +40,12 @@ class CreateApiKey:
         api_keys: ApiKeyRepository,
         organizations: OrganizationRepository,
         hasher: ApiKeyHasher,
+        audit_events: AuditRepository,
     ) -> None:
         self._api_keys = api_keys
         self._organizations = organizations
         self._hasher = hasher
+        self._audit_events = audit_events
 
     async def execute(self, command: CreateApiKeyCommand) -> CreateApiKeyResult:
         """Persist a hashed key; return metadata and the one-time plaintext secret."""
@@ -63,4 +67,15 @@ class CreateApiKey:
             updated_at=now,
         )
         stored = await self._api_keys.add(api_key)
+        await self._audit_events.add(
+            AuditEvent(
+                id=uuid4(),
+                action="api_key.created",
+                occurred_at=now,
+                organization_id=command.organization_id,
+                resource_type="api_key",
+                resource_id=str(stored.id),
+                metadata={"prefix": stored.prefix},
+            )
+        )
         return CreateApiKeyResult(api_key=stored.to_metadata(), secret=secret)

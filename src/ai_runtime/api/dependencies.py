@@ -26,6 +26,7 @@ from ai_runtime.infrastructure.db.repositories.api_key_repository import SqlAlch
 from ai_runtime.infrastructure.db.repositories.organization_policy_repository import SqlAlchemyOrganizationPolicyRepository
 from ai_runtime.infrastructure.db.repositories.prompt_repository import SqlAlchemyPromptRepository
 from ai_runtime.infrastructure.db.repositories.organization_repository import SqlAlchemyOrganizationRepository
+from ai_runtime.infrastructure.db.repositories.audit_repository import SqlAlchemyAuditRepository
 from ai_runtime.infrastructure.db.repositories.usage_repository import SqlAlchemyUsageRepository
 from ai_runtime.infrastructure.pricing import StaticCostEstimator
 from ai_runtime.infrastructure.redis import RedisIdempotencyStore, RedisRateLimiter, RedisResponseCache, create_redis_client
@@ -160,6 +161,8 @@ async def get_create_response(request: Request, session: DbSessionDep) -> Create
         RedisIdempotencyStore(redis, ttl_seconds=settings.idempotency_ttl_seconds),
         EnforceOrganizationPolicy(policy_repository, usage_repository),
         RedisResponseCache(redis, ttl_seconds=settings.response_cache_ttl_seconds),
+        request.app.state.metrics,
+        SqlAlchemyAuditRepository(session),
     )
 
 

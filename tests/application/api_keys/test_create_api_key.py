@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 import pytest
 from ai_runtime.application.api_keys.create_api_key import CreateApiKey, CreateApiKeyCommand
 from ai_runtime.domain.api_key import ApiKey
+from ai_runtime.domain.audit import AuditEvent
 from ai_runtime.domain.organization import Organization, OrganizationNotFoundError, OrganizationStatus
 from ai_runtime.infrastructure.security.api_key_crypto import Argon2ApiKeyHasher
 
@@ -55,6 +56,20 @@ class FakeApiKeyRepository:
         return api_key
 
 
+class FakeAuditRepository:
+    """In-memory AuditRepository for API-key tests."""
+
+    def __init__(self) -> None:
+        self.added: list[AuditEvent] = []
+
+    async def add(self, event: AuditEvent) -> AuditEvent:
+        self.added.append(event)
+        return event
+
+    async def get_by_id(self, event_id: UUID) -> AuditEvent | None:
+        return next((event for event in self.added if event.id == event_id), None)
+
+
 def _organization() -> Organization:
     now = datetime.now(UTC)
     return Organization(
@@ -73,7 +88,8 @@ def test_create_api_key_returns_metadata_and_one_time_secret() -> None:
     api_keys = FakeApiKeyRepository()
     hasher = Argon2ApiKeyHasher()
     organization = asyncio.run(organizations.add(_organization()))
-    use_case = CreateApiKey(api_keys, organizations, hasher)
+    audit = FakeAuditRepository()
+    use_case = CreateApiKey(api_keys, organizations, hasher, audit)
 
     result = asyncio.run(use_case.execute(CreateApiKeyCommand(organization_id=organization.id, name="ci")))
 
@@ -89,11 +105,15 @@ def test_create_api_key_returns_metadata_and_one_time_secret() -> None:
     assert stored.secret_hash != result.secret
     assert result.secret not in stored.secret_hash
     assert hasher.verify_secret(result.secret, stored.secret_hash) is True
+    assert len(audit.added) == 1
+    assert audit.added[0].action == "api_key.created"
+    assert audit.added[0].metadata["prefix"] == result.api_key.prefix
+    assert "secret" not in audit.added[0].metadata
 
 
 def test_create_api_key_fails_when_organization_missing() -> None:
     """CreateApiKey raises OrganizationNotFoundError when the org does not exist."""
-    use_case = CreateApiKey(FakeApiKeyRepository(), FakeOrganizationRepository(), Argon2ApiKeyHasher())
+    use_case = CreateApiKey(FakeApiKeyRepository(), FakeOrganizationRepository(), Argon2ApiKeyHasher(), FakeAuditRepository())
     missing_id = uuid4()
 
     with pytest.raises(OrganizationNotFoundError, match=str(missing_id)):
