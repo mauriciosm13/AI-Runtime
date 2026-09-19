@@ -5,7 +5,8 @@ import json
 from collections.abc import Callable
 import httpx
 import pytest
-from ai_runtime.domain.generation import GenerationDelta, GenerationRequest, GenerationResponse, Message, MessageRole
+from ai_runtime.domain.generation import GenerationDelta, GenerationRequest, GenerationResponse
+from ai_runtime.domain.generation import Message, MessageRole, ToolDefinition
 from ai_runtime.ports.model_provider import ModelProvider
 from ai_runtime.providers.openai import OpenAIModelProvider, OpenAIProviderError
 
@@ -275,3 +276,41 @@ def test_stream_malformed_chunk_raises() -> None:
     provider = OpenAIModelProvider(api_key=_API_KEY, http_client=_make_client(handler), base_url=_BASE_URL)
     with pytest.raises(OpenAIProviderError, match="JSON"):
         _collect_stream(provider, _sample_request())
+
+
+def test_generate_maps_tools_and_tool_calls() -> None:
+    """Tool definitions and tool_calls map through the OpenAI Chat Completions body."""
+    captured: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(request.content.decode())
+        payload = _success_payload()
+        payload["choices"] = [
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {"name": "get_weather", "arguments": '{"city":"Lisbon"}'},
+                        }
+                    ],
+                }
+            }
+        ]
+        return httpx.Response(200, json=payload)
+
+    provider = OpenAIModelProvider(api_key=_API_KEY, http_client=_make_client(handler), base_url=_BASE_URL)
+    request = GenerationRequest(
+        model="gpt-4o-mini",
+        messages=(Message(role=MessageRole.USER, content="Weather?"),),
+        tools=(ToolDefinition(name="get_weather", description="Weather", parameters={"type": "object"}),),
+    )
+    response = asyncio.run(provider.generate(request))
+    body = captured["body"]
+    assert isinstance(body, dict)
+    assert body["tools"][0]["function"]["name"] == "get_weather"
+    assert response.output.tool_calls[0].name == "get_weather"
+    assert response.output.content == ""

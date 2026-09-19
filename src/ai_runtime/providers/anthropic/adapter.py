@@ -4,7 +4,8 @@ from collections.abc import AsyncIterator
 from typing import Any
 import json
 import httpx
-from ai_runtime.domain.generation import GenerationDelta, GenerationRequest, GenerationResponse, Message, MessageRole, TokenUsage
+from ai_runtime.domain.generation import GenerationDelta, GenerationRequest, GenerationResponse
+from ai_runtime.domain.generation import Message, MessageRole, TokenUsage, ToolCall
 from ai_runtime.providers.anthropic.errors import AnthropicProviderError
 from ai_runtime.providers.sse import iter_sse_events
 
@@ -35,15 +36,46 @@ def _to_anthropic_body(request: GenerationRequest, *, stream: bool = False) -> d
     body: dict[str, Any] = {
         "model": request.model,
         "max_tokens": max_tokens,
-        "messages": [{"role": message.role.value, "content": message.content} for message in conversation],
+        "messages": [_to_anthropic_message(message) for message in conversation],
     }
     if system is not None:
         body["system"] = system
     if request.temperature is not None:
         body["temperature"] = request.temperature
+    if request.tools:
+        body["tools"] = [{"name": tool.name, "description": tool.description, "input_schema": tool.parameters} for tool in request.tools]
     if stream:
         body["stream"] = True
     return body
+
+
+def _to_anthropic_message(message: Message) -> dict[str, Any]:
+    """Map one domain message to an Anthropic Messages item."""
+    if message.role is MessageRole.TOOL:
+        return {
+            "role": "user",
+            "content": [
+                {
+                    "type": "tool_result",
+                    "tool_use_id": message.tool_call_id,
+                    "content": message.content,
+                }
+            ],
+        }
+    if message.role is MessageRole.ASSISTANT and message.tool_calls:
+        blocks: list[dict[str, Any]] = []
+        if message.content.strip():
+            blocks.append({"type": "text", "text": message.content})
+        for call in message.tool_calls:
+            try:
+                tool_input = json.loads(call.arguments)
+            except json.JSONDecodeError as err:
+                raise AnthropicProviderError("tool call arguments must be valid JSON") from err
+            if not isinstance(tool_input, dict):
+                raise AnthropicProviderError("tool call arguments must be a JSON object")
+            blocks.append({"type": "tool_use", "id": call.id, "name": call.name, "input": tool_input})
+        return {"role": "assistant", "content": blocks}
+    return {"role": message.role.value, "content": message.content}
 
 
 def _usage_from_anthropic_payload(usage_payload: object) -> TokenUsage | None:
@@ -71,9 +103,24 @@ def _text_from_content_blocks(content_blocks: object) -> str:
         if not isinstance(text, str):
             raise AnthropicProviderError("Anthropic response text block is missing text")
         parts.append(text)
-    if not parts:
-        raise AnthropicProviderError("Anthropic response is missing text content")
     return "".join(parts)
+
+
+def _tool_calls_from_anthropic(content_blocks: object) -> tuple[ToolCall, ...]:
+    """Parse Anthropic tool_use blocks into domain ToolCall values."""
+    if not isinstance(content_blocks, list):
+        return ()
+    calls: list[ToolCall] = []
+    for block in content_blocks:
+        if not isinstance(block, dict) or block.get("type") != "tool_use":
+            continue
+        call_id = block.get("id")
+        name = block.get("name")
+        tool_input = block.get("input")
+        if not isinstance(call_id, str) or not isinstance(name, str) or not isinstance(tool_input, dict):
+            raise AnthropicProviderError("Anthropic response tool_use block is invalid")
+        calls.append(ToolCall(id=call_id, name=name, arguments=json.dumps(tool_input, separators=(",", ":"), ensure_ascii=True)))
+    return tuple(calls)
 
 
 def _from_anthropic_payload(
@@ -88,12 +135,16 @@ def _from_anthropic_payload(
         model = payload.get("model")
         if not isinstance(model, str) or not model.strip():
             model = request.model
-        content = _text_from_content_blocks(payload.get("content"))
+        content_blocks = payload.get("content")
+        content = _text_from_content_blocks(content_blocks)
+        tool_calls = _tool_calls_from_anthropic(content_blocks)
+        if not content.strip() and not tool_calls:
+            raise AnthropicProviderError("Anthropic response is missing text content")
         usage = _usage_from_anthropic_payload(payload.get("usage"))
         return GenerationResponse(
             id=response_id,
             model=model,
-            output=Message(role=MessageRole.ASSISTANT, content=content),
+            output=Message(role=MessageRole.ASSISTANT, content=content, tool_calls=tool_calls),
             usage=usage,
         )
     except AnthropicProviderError:

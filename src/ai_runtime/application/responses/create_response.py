@@ -8,7 +8,7 @@ from uuid import UUID, uuid4
 from ai_runtime.application.policy.enforce_organization_policy import EnforceOrganizationPolicy, EnforceOrganizationPolicyCommand
 from ai_runtime.application.resilience.provider_executor import ProviderExecutor
 from ai_runtime.domain.generation import DomainValidationError, GenerationRequest, GenerationResponse
-from ai_runtime.domain.generation import GenerationStreamEvent, Message, MessageRole, TokenUsage
+from ai_runtime.domain.generation import GenerationStreamEvent, Message, MessageRole, TokenUsage, ToolCall
 from ai_runtime.domain.idempotency import IdempotencyConflictError
 from ai_runtime.domain.rate_limit import RateLimitExceededError
 from ai_runtime.domain.routing import ModelRoute
@@ -35,7 +35,11 @@ def _serialize_response(response: GenerationResponse) -> str:
     payload = {
         "id": response.id,
         "model": response.model,
-        "output": {"role": response.output.role.value, "content": response.output.content},
+        "output": {
+            "role": response.output.role.value,
+            "content": response.output.content,
+            "tool_calls": [{"id": call.id, "name": call.name, "arguments": call.arguments} for call in response.output.tool_calls],
+        },
         "usage": None
         if response.usage is None
         else {
@@ -56,7 +60,13 @@ def _deserialize_response(payload: str) -> GenerationResponse:
     return GenerationResponse(
         id=data["id"],
         model=data["model"],
-        output=Message(role=MessageRole(data["output"]["role"]), content=data["output"]["content"]),
+        output=Message(
+            role=MessageRole(data["output"]["role"]),
+            content=data["output"]["content"],
+            tool_calls=tuple(
+                ToolCall(id=item["id"], name=item["name"], arguments=item["arguments"]) for item in data["output"].get("tool_calls", [])
+            ),
+        ),
         usage=usage,
     )
 

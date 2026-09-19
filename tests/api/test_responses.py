@@ -17,7 +17,8 @@ from ai_runtime.application.policy.enforce_organization_policy import EnforceOrg
 from ai_runtime.application.resilience.provider_executor import ProviderExecutor
 from ai_runtime.application.responses.create_response import CreateResponse
 from ai_runtime.application.routing.model_router import ModelRouter
-from ai_runtime.domain.generation import GenerationDelta, GenerationRequest, GenerationResponse, Message, MessageRole, TokenUsage
+from ai_runtime.domain.generation import GenerationDelta, GenerationRequest, GenerationResponse
+from ai_runtime.domain.generation import Message, MessageRole, TokenUsage, ToolCall
 from ai_runtime.domain.organization_policy import ModelEntitlement, OrganizationPolicy
 from ai_runtime.ports.idempotency_store import IdempotencyCompleted, IdempotencyInProgress, IdempotencyMiss
 from ai_runtime.ports.rate_limiter import RateLimitDecision
@@ -586,7 +587,7 @@ def test_post_responses_completes_idempotency_on_success() -> None:
         {
             "id": "resp_abc",
             "model": "gpt-4o-mini",
-            "output": {"role": "assistant", "content": "Hi"},
+            "output": {"role": "assistant", "content": "Hi", "tool_calls": []},
             "usage": {"input_tokens": 10, "output_tokens": 5},
         },
         separators=(",", ":"),
@@ -697,3 +698,56 @@ def test_post_responses_stream_emits_error_event_after_delta() -> None:
     assert "event: response.error" in response.text
     assert '"code":"provider_error"' in response.text
     assert records.added == []
+
+
+def test_post_responses_returns_tool_calls() -> None:
+    """Declared tools can produce assistant tool_calls in the JSON response."""
+    provider = FakeModelProvider(
+        response=GenerationResponse(
+            id="resp_abc",
+            model="gpt-4o-mini",
+            output=Message(
+                role=MessageRole.ASSISTANT,
+                content="",
+                tool_calls=(ToolCall(id="call_1", name="get_weather", arguments='{"city":"Lisbon"}'),),
+            ),
+            usage=TokenUsage(input_tokens=10, output_tokens=5),
+        )
+    )
+    client = _client_with_provider(provider)
+    response = client.post(
+        "/v1/responses",
+        json=_request_body(tools=[{"name": "get_weather", "description": "Weather", "parameters": {"type": "object"}}]),
+    )
+    assert response.status_code == 200
+    assert response.json()["output"]["tool_calls"] == [{"id": "call_1", "name": "get_weather", "arguments": '{"city":"Lisbon"}'}]
+    assert provider.requests[0].tools[0].name == "get_weather"
+
+
+def test_post_responses_stream_rejects_tools() -> None:
+    """Streaming requests cannot include tools in this slice."""
+    provider = FakeModelProvider(response=_success_response())
+    client = _client_with_provider(provider)
+    response = client.post(
+        "/v1/responses",
+        json=_request_body(
+            stream=True,
+            tools=[{"name": "get_weather", "parameters": {"type": "object"}}],
+        ),
+    )
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "invalid_request"
+    assert provider.requests == []
+
+
+def test_post_responses_rejects_tool_message_without_tool_call_id() -> None:
+    """Tool result messages require tool_call_id."""
+    client = _client_with_provider(FakeModelProvider(response=_success_response()))
+    response = client.post(
+        "/v1/responses",
+        json={
+            "model": "gpt-4o-mini",
+            "messages": [{"role": "tool", "content": "72"}],
+        },
+    )
+    assert response.status_code == 422
