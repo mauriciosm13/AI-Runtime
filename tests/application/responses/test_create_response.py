@@ -2,7 +2,7 @@
 
 import asyncio
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
@@ -24,6 +24,9 @@ from ai_runtime.ports.idempotency_store import IdempotencyMiss, IdempotencyStore
 from ai_runtime.ports.model_provider import ModelProvider
 from ai_runtime.ports.organization_policy_repository import OrganizationPolicyRepository
 from ai_runtime.ports.rate_limiter import RateLimitDecision, RateLimiter
+from ai_runtime.domain.audit import AuditEvent
+from ai_runtime.ports.audit_repository import AuditRepository
+from ai_runtime.ports.metrics import Metrics
 from ai_runtime.ports.response_cache import ResponseCache
 from ai_runtime.ports.usage_repository import UsageRepository
 from ai_runtime.providers.errors import ProviderError
@@ -148,6 +151,33 @@ class FakeIdempotencyStore:
         self.released.append((organization_id, key))
 
 
+class FakeMetrics:
+    """In-memory Metrics that records increment/observe calls."""
+
+    def __init__(self) -> None:
+        self.increments: list[tuple[str, dict[str, str], float]] = []
+
+    def increment(self, name: str, labels: Mapping[str, str] | None = None, *, amount: float = 1.0) -> None:
+        self.increments.append((name, dict(labels or {}), amount))
+
+    def observe(self, name: str, value: float, labels: Mapping[str, str] | None = None) -> None:
+        _ = name, value, labels
+
+
+class FakeAuditRepository:
+    """In-memory AuditRepository for use-case tests."""
+
+    def __init__(self) -> None:
+        self.added: list[AuditEvent] = []
+
+    async def add(self, event: AuditEvent) -> AuditEvent:
+        self.added.append(event)
+        return event
+
+    async def get_by_id(self, event_id: UUID) -> AuditEvent | None:
+        return next((event for event in self.added if event.id == event_id), None)
+
+
 class FakeResponseCache:
     """In-memory ResponseCache for use-case tests."""
 
@@ -245,6 +275,8 @@ def _use_case(
     idempotency_store: FakeIdempotencyStore | None = None,
     policy_repository: FakeOrganizationPolicyRepository | None = None,
     response_cache: FakeResponseCache | None = None,
+    metrics: FakeMetrics | None = None,
+    audit_events: FakeAuditRepository | None = None,
     model_router: ModelRouter | None = None,
     provider_executor: ProviderExecutor | None = None,
     max_retries: int = 0,
@@ -263,6 +295,8 @@ def _use_case(
     store = idempotency_store or FakeIdempotencyStore()
     policies = policy_repository or FakeOrganizationPolicyRepository()
     cache = response_cache or FakeResponseCache()
+    collected_metrics = metrics or FakeMetrics()
+    collected_audit = audit_events or FakeAuditRepository()
     enforce_policy = EnforceOrganizationPolicy(policies, records)
     executor = provider_executor or _provider_executor(
         provider,
@@ -278,6 +312,8 @@ def _use_case(
         store,
         enforce_policy,
         cache,
+        collected_metrics,
+        collected_audit,
     )
     return use_case, records, estimator, limiter, store, policies
 
@@ -464,6 +500,8 @@ def test_create_response_accepts_port_protocols() -> None:
     idempotency_store: IdempotencyStore = FakeIdempotencyStore()
     policy_repository: OrganizationPolicyRepository = FakeOrganizationPolicyRepository()
     response_cache: ResponseCache = FakeResponseCache()
+    metrics: Metrics = FakeMetrics()
+    audit_events: AuditRepository = FakeAuditRepository()
     enforce_policy = EnforceOrganizationPolicy(policy_repository, usage_records)
     assert isinstance(provider, ModelProvider)
     assert isinstance(usage_records, UsageRepository)
@@ -472,6 +510,8 @@ def test_create_response_accepts_port_protocols() -> None:
     assert isinstance(idempotency_store, IdempotencyStore)
     assert isinstance(policy_repository, OrganizationPolicyRepository)
     assert isinstance(response_cache, ResponseCache)
+    assert isinstance(metrics, Metrics)
+    assert isinstance(audit_events, AuditRepository)
     assert isinstance(
         CreateResponse(
             _provider_executor(FakeModelProvider(response=_response())),
@@ -481,6 +521,8 @@ def test_create_response_accepts_port_protocols() -> None:
             idempotency_store,
             enforce_policy,
             response_cache,
+            metrics,
+            audit_events,
         ),
         CreateResponse,
     )
@@ -877,3 +919,25 @@ def test_create_response_idempotency_replay_wins_over_cache() -> None:
     assert provider.requests == []
     assert records.added == []
     assert cache.get_calls == []
+
+
+def test_create_response_records_metrics_and_audit_without_content() -> None:
+    """A successful generation increments metrics and writes a body-free audit event."""
+    metrics = FakeMetrics()
+    audit = FakeAuditRepository()
+    provider = FakeModelProvider(response=_response())
+    use_case, _, _, _, _, _ = _use_case(provider, metrics=metrics, audit_events=audit)
+    command = _command()
+
+    result = asyncio.run(use_case.execute(command))
+
+    assert ("generation_requests_total", {"result": "success", "outcome": "provider"}, 1.0) in metrics.increments
+    assert ("generation_tokens_total", {"direction": "input"}, 10.0) in metrics.increments
+    assert len(audit.added) == 1
+    event = audit.added[0]
+    assert event.action == "response.created"
+    assert event.request_id == command.request_id
+    assert event.resource_id == result.id
+    assert event.metadata == {"model": "fake-model", "outcome": "provider", "provider": "openai"}
+    assert "content" not in event.metadata
+    assert "prompt" not in event.metadata

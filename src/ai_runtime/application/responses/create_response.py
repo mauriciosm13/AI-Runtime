@@ -1,6 +1,8 @@
 """Use case for creating a provider-neutral model response."""
 
 import json
+import logging
+import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
@@ -8,17 +10,23 @@ from uuid import UUID, uuid4
 from ai_runtime.application.policy.enforce_organization_policy import EnforceOrganizationPolicy, EnforceOrganizationPolicyCommand
 from ai_runtime.application.resilience.provider_executor import ProviderExecutor
 from ai_runtime.application.responses.cache_fingerprint import fingerprint_generation_request
+from ai_runtime.domain.audit import AuditEvent
 from ai_runtime.domain.generation import DomainValidationError, GenerationRequest, GenerationResponse
 from ai_runtime.domain.generation import GenerationStreamEvent, Message, MessageRole, TokenUsage, ToolCall
 from ai_runtime.domain.idempotency import IdempotencyConflictError
 from ai_runtime.domain.rate_limit import RateLimitExceededError
 from ai_runtime.domain.routing import ModelRoute
 from ai_runtime.domain.usage import UsageRecord
+from ai_runtime.ports.audit_repository import AuditRepository
 from ai_runtime.ports.cost_estimator import CostEstimator
 from ai_runtime.ports.idempotency_store import IdempotencyCompleted, IdempotencyInProgress, IdempotencyMiss, IdempotencyStore
+from ai_runtime.ports.metrics import Metrics
 from ai_runtime.ports.rate_limiter import RateLimiter
 from ai_runtime.ports.response_cache import ResponseCache
 from ai_runtime.ports.usage_repository import UsageRepository
+from ai_runtime.telemetry.logging import REQUEST_LOGGER_NAME
+
+_LOGGER = logging.getLogger(REQUEST_LOGGER_NAME)
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,6 +93,8 @@ class CreateResponse:
         idempotency_store: IdempotencyStore,
         enforce_organization_policy: EnforceOrganizationPolicy,
         response_cache: ResponseCache,
+        metrics: Metrics,
+        audit_events: AuditRepository,
     ) -> None:
         self._provider_executor = provider_executor
         self._usage_records = usage_records
@@ -93,6 +103,8 @@ class CreateResponse:
         self._idempotency_store = idempotency_store
         self._enforce_organization_policy = enforce_organization_policy
         self._response_cache = response_cache
+        self._metrics = metrics
+        self._audit_events = audit_events
 
     async def execute(self, command: CreateResponseCommand) -> GenerationResponse:
         """Enforce limits, route the model, generate a response, record usage, then return the result.
@@ -101,17 +113,22 @@ class CreateResponse:
         is written only after a successful provider response. Idempotent replays
         skip routing, provider invocation, and usage persistence.
         """
+        started_at = time.perf_counter()
         decision = await self._rate_limiter.consume(command.organization_id)
         if not decision.allowed:
             retry_after = decision.retry_after_seconds if decision.retry_after_seconds is not None else 1
+            self._record_generation_error()
             raise RateLimitExceededError(retry_after_seconds=max(1, retry_after))
 
         claimed_idempotency = False
         if command.idempotency_key is not None:
             begin_result = await self._idempotency_store.begin(command.organization_id, command.idempotency_key)
             if isinstance(begin_result, IdempotencyCompleted):
-                return _deserialize_response(begin_result.payload)
+                response = _deserialize_response(begin_result.payload)
+                await self._record_generation_success(command, response, outcome="idempotent", provider="replay", count_tokens=False)
+                return response
             if isinstance(begin_result, IdempotencyInProgress):
+                self._record_generation_error()
                 raise IdempotencyConflictError()
             assert isinstance(begin_result, IdempotencyMiss)
             claimed_idempotency = True
@@ -136,6 +153,7 @@ class CreateResponse:
                         command.idempotency_key,
                         _serialize_response(response),
                     )
+                await self._record_generation_success(command, response, outcome="cache", provider="cache", count_tokens=False)
                 return response
 
         try:
@@ -168,10 +186,19 @@ class CreateResponse:
                     command.idempotency_key,
                     _serialize_response(response),
                 )
+            await self._record_generation_success(
+                command,
+                response,
+                outcome="provider",
+                provider=execution.provider_name,
+                count_tokens=True,
+                duration_ms=round((time.perf_counter() - started_at) * 1000, 2),
+            )
             return response
         except Exception:
             if claimed_idempotency and command.idempotency_key is not None:
                 await self._idempotency_store.release(command.organization_id, command.idempotency_key)
+            self._record_generation_error()
             raise
 
     async def stream(self, command: CreateResponseCommand) -> AsyncIterator[GenerationStreamEvent]:
@@ -203,6 +230,13 @@ class CreateResponse:
         ):
             if isinstance(item.payload, GenerationResponse):
                 await self._record_usage(command, item.provider_name, item.payload)
+                await self._record_generation_success(
+                    command,
+                    item.payload,
+                    outcome="provider",
+                    provider=item.provider_name,
+                    count_tokens=True,
+                )
             yield item.payload
 
     async def _record_usage(
@@ -231,5 +265,46 @@ class CreateResponse:
                 output_tokens=output_tokens,
                 estimated_cost_usd=estimated_cost,
                 created_at=datetime.now(UTC),
+            )
+        )
+
+    def _record_generation_error(self) -> None:
+        """Count a failed generation attempt."""
+        self._metrics.increment("generation_requests_total", {"result": "error"})
+
+    async def _record_generation_success(
+        self,
+        command: CreateResponseCommand,
+        response: GenerationResponse,
+        *,
+        outcome: str,
+        provider: str,
+        count_tokens: bool,
+        duration_ms: float | None = None,
+    ) -> None:
+        """Emit success metrics, a generation span, and an audit event without bodies."""
+        self._metrics.increment("generation_requests_total", {"result": "success", "outcome": outcome})
+        if count_tokens and response.usage is not None:
+            self._metrics.increment("generation_tokens_total", {"direction": "input"}, amount=float(response.usage.input_tokens))
+            self._metrics.increment("generation_tokens_total", {"direction": "output"}, amount=float(response.usage.output_tokens))
+        extra: dict[str, object] = {
+            "request_id": command.request_id,
+            "trace_id": command.request_id,
+            "span": "generation",
+        }
+        if duration_ms is not None:
+            extra["duration_ms"] = duration_ms
+        _LOGGER.info("span_completed", extra=extra)
+        await self._audit_events.add(
+            AuditEvent(
+                id=uuid4(),
+                action="response.created",
+                occurred_at=datetime.now(UTC),
+                organization_id=command.organization_id,
+                actor_api_key_id=command.api_key_id,
+                request_id=command.request_id,
+                resource_type="response",
+                resource_id=response.id,
+                metadata={"model": response.model, "outcome": outcome, "provider": provider},
             )
         )

@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 import pytest
 from ai_runtime.application.api_keys.revoke_api_key import RevokeApiKey
 from ai_runtime.domain.api_key import ApiKey, ApiKeyAlreadyRevokedError, ApiKeyNotFoundError, ApiKeyStatus
+from ai_runtime.domain.audit import AuditEvent
 
 
 class FakeApiKeyRepository:
@@ -33,6 +34,20 @@ class FakeApiKeyRepository:
         return api_key
 
 
+class FakeAuditRepository:
+    """In-memory AuditRepository for revoke tests."""
+
+    def __init__(self) -> None:
+        self.added: list[AuditEvent] = []
+
+    async def add(self, event: AuditEvent) -> AuditEvent:
+        self.added.append(event)
+        return event
+
+    async def get_by_id(self, event_id: UUID) -> AuditEvent | None:
+        return next((event for event in self.added if event.id == event_id), None)
+
+
 def _active_key() -> ApiKey:
     now = datetime.now(UTC)
     return ApiKey(
@@ -52,7 +67,8 @@ def test_revoke_api_key_marks_revoked() -> None:
     """RevokeApiKey sets status revoked and revoked_at."""
     repository = FakeApiKeyRepository()
     key = asyncio.run(repository.add(_active_key()))
-    use_case = RevokeApiKey(repository)
+    audit = FakeAuditRepository()
+    use_case = RevokeApiKey(repository, audit)
 
     metadata = asyncio.run(use_case.execute(key.id))
 
@@ -63,11 +79,13 @@ def test_revoke_api_key_marks_revoked() -> None:
     assert stored is not None
     assert stored.status is ApiKeyStatus.REVOKED
     assert stored.revoked_at is not None
+    assert audit.added[0].action == "api_key.revoked"
+    assert audit.added[0].metadata["prefix"] == key.prefix
 
 
 def test_revoke_api_key_missing_raises() -> None:
     """RevokeApiKey raises when the key does not exist."""
-    use_case = RevokeApiKey(FakeApiKeyRepository())
+    use_case = RevokeApiKey(FakeApiKeyRepository(), FakeAuditRepository())
     missing_id = uuid4()
     with pytest.raises(ApiKeyNotFoundError, match=str(missing_id)):
         asyncio.run(use_case.execute(missing_id))
@@ -77,7 +95,7 @@ def test_revoke_api_key_already_revoked_raises() -> None:
     """Double-revoke raises ApiKeyAlreadyRevokedError (explicit non-idempotent policy)."""
     repository = FakeApiKeyRepository()
     key = asyncio.run(repository.add(_active_key()))
-    use_case = RevokeApiKey(repository)
+    use_case = RevokeApiKey(repository, FakeAuditRepository())
     asyncio.run(use_case.execute(key.id))
 
     with pytest.raises(ApiKeyAlreadyRevokedError, match="already revoked"):

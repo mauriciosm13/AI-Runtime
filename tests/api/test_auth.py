@@ -21,8 +21,8 @@ from ai_runtime.infrastructure.security.api_key_crypto import Argon2ApiKeyHasher
 from tests.api.test_responses import FakeModelProvider, _request_body, _success_response
 from tests.application.prompts.fakes import FakePromptRepository, override_resolve_prompt
 from tests.application.policy.test_enforce_organization_policy import FakeOrganizationPolicyRepository
-from tests.application.responses.test_create_response import FakeCostEstimator, FakeIdempotencyStore, FakeRateLimiter, FakeUsageRepository
-from tests.application.responses.test_create_response import FakeResponseCache
+from tests.application.responses.test_create_response import FakeAuditRepository, FakeCostEstimator, FakeIdempotencyStore
+from tests.application.responses.test_create_response import FakeMetrics, FakeRateLimiter, FakeResponseCache, FakeUsageRepository
 
 _UNAUTHORIZED_MESSAGE = "Invalid or missing API key."
 _FORBIDDEN_MESSAGE = "Organization is suspended."
@@ -139,6 +139,8 @@ def _client(provider: FakeModelProvider, authenticate: AuthenticateApiKey) -> Te
             FakeIdempotencyStore(),
             EnforceOrganizationPolicy(policies, records),
             FakeResponseCache(),
+            FakeMetrics(),
+            FakeAuditRepository(),
         )
 
     async def override_authenticate() -> AuthenticateApiKey:

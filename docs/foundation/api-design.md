@@ -15,6 +15,7 @@ The table describes the planned initial API surface. `Planned` routes document t
 | Method | Path | Status | Purpose |
 | --- | --- | --- | --- |
 | `GET` | `/health` | First endpoint | Liveness: confirms the process can serve HTTP. |
+| `GET` | `/metrics` | Implemented | Prometheus text scrape of in-process HTTP and generation metrics. Unauthenticated. |
 | `GET` | `/ready` | Planned | Readiness: confirms required runtime dependencies are usable. |
 | `POST` | `/v1/responses` | Implemented | Creates a provider-neutral model response. |
 | `POST` | `/v1/prompts` | Implemented | Creates the next immutable version of an organization prompt template. |
@@ -151,6 +152,9 @@ Every HTTP request is assigned a correlation identifier:
 - All HTTP responses include `X-Request-ID` with the identifier used for that request.
 - Error envelopes include the same value in `error.request_id`.
 - Structured request logs use the same identifier for start and completion events.
+- The same value is emitted as `trace_id`. HTTP and generation spans (`span=http` / `span=generation`) share it.
+
+`GET /metrics` is unauthenticated and returns Prometheus text for `http_requests_total`, `http_request_duration_seconds`, `generation_requests_total`, and `generation_tokens_total`. Successful generations also append an `audit_events` row (`action=response.created`) with model/outcome/provider labels only — never prompt or response content.
 
 This HTTP correlation identifier is distinct from `response.id`, which identifies a model generation result returned by `POST /v1/responses`.
 
