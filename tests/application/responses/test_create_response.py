@@ -24,6 +24,7 @@ from ai_runtime.ports.idempotency_store import IdempotencyMiss, IdempotencyStore
 from ai_runtime.ports.model_provider import ModelProvider
 from ai_runtime.ports.organization_policy_repository import OrganizationPolicyRepository
 from ai_runtime.ports.rate_limiter import RateLimitDecision, RateLimiter
+from ai_runtime.ports.response_cache import ResponseCache
 from ai_runtime.ports.usage_repository import UsageRepository
 from ai_runtime.providers.errors import ProviderError
 
@@ -147,6 +148,23 @@ class FakeIdempotencyStore:
         self.released.append((organization_id, key))
 
 
+class FakeResponseCache:
+    """In-memory ResponseCache for use-case tests."""
+
+    def __init__(self) -> None:
+        self._values: dict[tuple[UUID, str], str] = {}
+        self.get_calls: list[tuple[UUID, str]] = []
+        self.set_calls: list[tuple[UUID, str, str]] = []
+
+    async def get(self, organization_id: UUID, fingerprint: str) -> str | None:
+        self.get_calls.append((organization_id, fingerprint))
+        return self._values.get((organization_id, fingerprint))
+
+    async def set(self, organization_id: UUID, fingerprint: str, payload: str) -> None:
+        self.set_calls.append((organization_id, fingerprint, payload))
+        self._values[(organization_id, fingerprint)] = payload
+
+
 class FakeOrganizationPolicyRepository:
     """In-memory OrganizationPolicyRepository for use-case tests."""
 
@@ -226,6 +244,7 @@ def _use_case(
     rate_limiter: FakeRateLimiter | None = None,
     idempotency_store: FakeIdempotencyStore | None = None,
     policy_repository: FakeOrganizationPolicyRepository | None = None,
+    response_cache: FakeResponseCache | None = None,
     model_router: ModelRouter | None = None,
     provider_executor: ProviderExecutor | None = None,
     max_retries: int = 0,
@@ -243,6 +262,7 @@ def _use_case(
     limiter = rate_limiter or FakeRateLimiter()
     store = idempotency_store or FakeIdempotencyStore()
     policies = policy_repository or FakeOrganizationPolicyRepository()
+    cache = response_cache or FakeResponseCache()
     enforce_policy = EnforceOrganizationPolicy(policies, records)
     executor = provider_executor or _provider_executor(
         provider,
@@ -257,6 +277,7 @@ def _use_case(
         limiter,
         store,
         enforce_policy,
+        cache,
     )
     return use_case, records, estimator, limiter, store, policies
 
@@ -442,6 +463,7 @@ def test_create_response_accepts_port_protocols() -> None:
     rate_limiter: RateLimiter = FakeRateLimiter()
     idempotency_store: IdempotencyStore = FakeIdempotencyStore()
     policy_repository: OrganizationPolicyRepository = FakeOrganizationPolicyRepository()
+    response_cache: ResponseCache = FakeResponseCache()
     enforce_policy = EnforceOrganizationPolicy(policy_repository, usage_records)
     assert isinstance(provider, ModelProvider)
     assert isinstance(usage_records, UsageRepository)
@@ -449,6 +471,7 @@ def test_create_response_accepts_port_protocols() -> None:
     assert isinstance(rate_limiter, RateLimiter)
     assert isinstance(idempotency_store, IdempotencyStore)
     assert isinstance(policy_repository, OrganizationPolicyRepository)
+    assert isinstance(response_cache, ResponseCache)
     assert isinstance(
         CreateResponse(
             _provider_executor(FakeModelProvider(response=_response())),
@@ -457,6 +480,7 @@ def test_create_response_accepts_port_protocols() -> None:
             rate_limiter,
             idempotency_store,
             enforce_policy,
+            response_cache,
         ),
         CreateResponse,
     )
@@ -689,3 +713,167 @@ def test_stream_does_not_record_usage_when_provider_fails_after_delta() -> None:
 
     asyncio.run(_run())
     assert records.added == []
+
+
+def test_create_response_does_not_touch_cache_when_disabled() -> None:
+    """Default cache=false never reads or writes the response cache."""
+    cache = FakeResponseCache()
+    provider = FakeModelProvider(response=_response())
+    use_case, records, _, _, _, _ = _use_case(provider, response_cache=cache)
+
+    result = asyncio.run(use_case.execute(_command()))
+
+    assert result.cached is False
+    assert cache.get_calls == []
+    assert cache.set_calls == []
+    assert provider.requests
+    assert len(records.added) == 1
+
+
+def test_create_response_cache_miss_then_hit() -> None:
+    """An opted-in miss stores the response; the next identical request is a hit."""
+    cache = FakeResponseCache()
+    request = GenerationRequest(
+        model="fake-model",
+        messages=(Message(role=MessageRole.USER, content="Hello"),),
+        cache=True,
+    )
+    provider = FakeModelProvider(response=_response())
+    use_case, records, _, _, _, _ = _use_case(provider, response_cache=cache)
+    command = _command(request=request)
+
+    miss = asyncio.run(use_case.execute(command))
+    hit = asyncio.run(use_case.execute(command))
+
+    assert miss.cached is False
+    assert hit.cached is True
+    assert hit.id == miss.id
+    assert hit.output.content == "Hi"
+    assert len(provider.requests) == 1
+    assert len(records.added) == 1
+    assert len(cache.set_calls) == 1
+    assert len(cache.get_calls) == 2
+
+
+def test_create_response_cache_is_organization_scoped() -> None:
+    """The same payload for another organization is a miss."""
+    cache = FakeResponseCache()
+    request = GenerationRequest(
+        model="fake-model",
+        messages=(Message(role=MessageRole.USER, content="Hello"),),
+        cache=True,
+    )
+    provider = FakeModelProvider(response=_response())
+    use_case, _, _, _, _, _ = _use_case(provider, response_cache=cache)
+    first = _command(request=request)
+    second = CreateResponseCommand(
+        request=request,
+        request_id="req_other",
+        organization_id=uuid4(),
+        api_key_id=uuid4(),
+    )
+
+    asyncio.run(use_case.execute(first))
+    result = asyncio.run(use_case.execute(second))
+
+    assert result.cached is False
+    assert len(provider.requests) == 2
+
+
+def test_create_response_cache_misses_when_payload_changes() -> None:
+    """A different message is a different cache key."""
+    cache = FakeResponseCache()
+    provider = FakeModelProvider(response=_response())
+    use_case, _, _, _, _, _ = _use_case(provider, response_cache=cache)
+    first = _command(
+        request=GenerationRequest(
+            model="fake-model",
+            messages=(Message(role=MessageRole.USER, content="Hello"),),
+            cache=True,
+        )
+    )
+    second = CreateResponseCommand(
+        request=GenerationRequest(
+            model="fake-model",
+            messages=(Message(role=MessageRole.USER, content="Other"),),
+            cache=True,
+        ),
+        request_id=first.request_id,
+        organization_id=first.organization_id,
+        api_key_id=first.api_key_id,
+    )
+
+    asyncio.run(use_case.execute(first))
+    result = asyncio.run(use_case.execute(second))
+
+    assert result.cached is False
+    assert len(provider.requests) == 2
+
+
+def test_create_response_cache_hit_still_enforces_entitlement() -> None:
+    """A cache hit is rejected when the organization is no longer entitled."""
+    org_id = uuid4()
+    cache = FakeResponseCache()
+    request = GenerationRequest(
+        model="fake-model",
+        messages=(Message(role=MessageRole.USER, content="Hello"),),
+        cache=True,
+    )
+    provider = FakeModelProvider(response=_response())
+    open_policies = FakeOrganizationPolicyRepository()
+    use_case, _, _, _, _, _ = _use_case(provider, policy_repository=open_policies, response_cache=cache)
+    command = CreateResponseCommand(
+        request=request,
+        request_id="req_test_123",
+        organization_id=org_id,
+        api_key_id=uuid4(),
+    )
+    asyncio.run(use_case.execute(command))
+
+    denied = FakeOrganizationPolicyRepository(
+        entitlements=(ModelEntitlement(organization_id=org_id, model="other-model"),),
+    )
+    denied_use_case, records, _, _, _, _ = _use_case(
+        provider,
+        policy_repository=denied,
+        response_cache=cache,
+    )
+    with pytest.raises(ModelNotAvailableError):
+        asyncio.run(denied_use_case.execute(command))
+    assert len(provider.requests) == 1
+    assert len(records.added) == 0
+
+
+def test_create_response_idempotency_replay_wins_over_cache() -> None:
+    """A completed Idempotency-Key is returned without consulting the cache."""
+    cache = FakeResponseCache()
+    stored = _response(usage=TokenUsage(input_tokens=3, output_tokens=2))
+    payload = json.dumps(
+        {
+            "id": stored.id,
+            "model": stored.model,
+            "output": {"role": stored.output.role.value, "content": stored.output.content, "tool_calls": []},
+            "usage": {"input_tokens": 3, "output_tokens": 2},
+        },
+        separators=(",", ":"),
+        ensure_ascii=True,
+    )
+    provider = FakeModelProvider(response=_response())
+    use_case, records, _, _, _, _ = _use_case(
+        provider,
+        idempotency_store=FakeIdempotencyStore(IdempotencyCompleted(payload=payload)),
+        response_cache=cache,
+    )
+    request = GenerationRequest(
+        model="fake-model",
+        messages=(Message(role=MessageRole.USER, content="Hello"),),
+        cache=True,
+    )
+
+    result = asyncio.run(use_case.execute(_command(request=request, idempotency_key="key-1")))
+
+    assert result == stored
+    assert result.cached is False
+    assert provider.requests == []
+    assert records.added == []
+    assert cache.get_calls == []

@@ -8,6 +8,7 @@ from ai_runtime.ports.model_provider import ModelProvider
 from ai_runtime.ports.organization_policy_repository import OrganizationPolicyRepository
 from ai_runtime.ports.organization_repository import OrganizationRepository
 from ai_runtime.ports.rate_limiter import RateLimiter
+from ai_runtime.ports.response_cache import ResponseCache
 from ai_runtime.ports.usage_repository import UsageRepository
 
 __all__ = [
@@ -19,5 +20,6 @@ __all__ = [
     "OrganizationPolicyRepository",
     "OrganizationRepository",
     "RateLimiter",
+    "ResponseCache",
     "UsageRepository",
 ]

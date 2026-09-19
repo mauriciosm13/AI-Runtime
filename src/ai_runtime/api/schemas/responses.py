@@ -110,6 +110,7 @@ class CreateResponseRequest(BaseModel):
     max_output_tokens: int | None = Field(default=None, gt=0)
     stream: bool = False
     tools: list[ToolDefinitionSchema] = Field(default_factory=list)
+    cache: bool = False
 
     def to_domain(self) -> GenerationRequest:
         """Map this API payload to a domain GenerationRequest."""
@@ -120,6 +121,7 @@ class CreateResponseRequest(BaseModel):
             max_output_tokens=self.max_output_tokens,
             stream=self.stream,
             tools=tuple(tool.to_domain() for tool in self.tools),
+            cache=self.cache,
         )
 
 
@@ -151,6 +153,15 @@ class ResponseSchema(BaseModel):
     model: str
     output: MessageSchema
     usage: TokenUsageSchema | None = None
+    cached: bool = False
+
+    @model_serializer(mode="wrap")
+    def _omit_default_cached(self, serializer: Any) -> dict[str, Any]:
+        """Keep the existing JSON shape when the response is not a cache hit."""
+        payload = dict(serializer(self))
+        if not payload.get("cached"):
+            payload.pop("cached", None)
+        return payload
 
     @classmethod
     def from_domain(cls, response: GenerationResponse) -> "ResponseSchema":
@@ -161,4 +172,5 @@ class ResponseSchema(BaseModel):
             model=response.model,
             output=MessageSchema.from_domain(response.output),
             usage=usage,
+            cached=response.cached,
         )
