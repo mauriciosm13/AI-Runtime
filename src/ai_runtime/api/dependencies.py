@@ -23,7 +23,7 @@ from ai_runtime.infrastructure.db.repositories.organization_policy_repository im
 from ai_runtime.infrastructure.db.repositories.organization_repository import SqlAlchemyOrganizationRepository
 from ai_runtime.infrastructure.db.repositories.usage_repository import SqlAlchemyUsageRepository
 from ai_runtime.infrastructure.pricing import StaticCostEstimator
-from ai_runtime.infrastructure.redis import RedisIdempotencyStore, RedisRateLimiter, create_redis_client
+from ai_runtime.infrastructure.redis import RedisIdempotencyStore, RedisRateLimiter, RedisResponseCache, create_redis_client
 from ai_runtime.infrastructure.security.api_key_crypto import Argon2ApiKeyHasher
 from ai_runtime.ports.model_provider import ModelProvider
 from ai_runtime.providers.anthropic.adapter import AnthropicModelProvider
@@ -153,6 +153,7 @@ async def get_create_response(request: Request, session: DbSessionDep) -> Create
         ),
         RedisIdempotencyStore(redis, ttl_seconds=settings.idempotency_ttl_seconds),
         EnforceOrganizationPolicy(policy_repository, usage_repository),
+        RedisResponseCache(redis, ttl_seconds=settings.response_cache_ttl_seconds),
     )
 
 

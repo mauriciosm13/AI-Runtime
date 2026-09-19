@@ -124,3 +124,23 @@ def test_stream_rejects_tools() -> None:
     tool = ToolDefinition(name="get_weather", parameters={"type": "object"})
     with pytest.raises(DomainValidationError, match="tools"):
         GenerationRequest(model="gpt-test", messages=(message,), stream=True, tools=(tool,))
+
+
+def test_stream_rejects_cache() -> None:
+    """Streaming requests cannot opt in to response cache in this slice."""
+    message = Message(role=MessageRole.USER, content="Hello")
+    with pytest.raises(DomainValidationError, match="cache"):
+        GenerationRequest(model="gpt-test", messages=(message,), stream=True, cache=True)
+
+
+def test_generation_request_cache_defaults_false() -> None:
+    """cache defaults to false on GenerationRequest and GenerationResponse."""
+    message = Message(role=MessageRole.USER, content="Hello")
+    request = GenerationRequest(model="gpt-test", messages=(message,))
+    response = GenerationResponse(
+        id="resp_1",
+        model="gpt-test",
+        output=Message(role=MessageRole.ASSISTANT, content="Hi"),
+    )
+    assert request.cache is False
+    assert response.cached is False

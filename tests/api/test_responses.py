@@ -25,6 +25,7 @@ from ai_runtime.ports.rate_limiter import RateLimitDecision
 from ai_runtime.providers.openai.errors import ProviderError
 from tests.application.policy.test_enforce_organization_policy import FakeOrganizationPolicyRepository
 from tests.application.responses.test_create_response import FakeCostEstimator, FakeIdempotencyStore, FakeRateLimiter, FakeUsageRepository
+from tests.application.responses.test_create_response import FakeResponseCache
 
 
 class FakeModelProvider:
@@ -91,6 +92,7 @@ def _client_with_provider(
     rate_limiter: FakeRateLimiter | None = None,
     idempotency_store: FakeIdempotencyStore | None = None,
     policy_repository: FakeOrganizationPolicyRepository | None = None,
+    response_cache: FakeResponseCache | None = None,
     principal: AuthenticatedPrincipal | None = None,
 ) -> TestClient:
     """Test client with provider + auth bypassed (generation contract focus)."""
@@ -99,6 +101,7 @@ def _client_with_provider(
     limiter = rate_limiter or FakeRateLimiter()
     store = idempotency_store or FakeIdempotencyStore()
     policies = policy_repository or FakeOrganizationPolicyRepository()
+    cache = response_cache or FakeResponseCache()
     auth_principal = principal or _fake_principal()
 
     async def override_create_response() -> CreateResponse:
@@ -115,6 +118,7 @@ def _client_with_provider(
             limiter,
             store,
             enforce_policy,
+            cache,
         )
 
     async def override_principal() -> AuthenticatedPrincipal:
@@ -167,6 +171,7 @@ def test_post_responses_records_usage_with_request_id() -> None:
             FakeRateLimiter(),
             FakeIdempotencyStore(),
             EnforceOrganizationPolicy(policies, records),
+            FakeResponseCache(),
         )
 
     async def override_principal() -> AuthenticatedPrincipal:
@@ -735,6 +740,31 @@ def test_post_responses_stream_rejects_tools() -> None:
             tools=[{"name": "get_weather", "parameters": {"type": "object"}}],
         ),
     )
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "invalid_request"
+    assert provider.requests == []
+
+
+def test_post_responses_cache_hit_returns_cached_flag() -> None:
+    """Two identical cache=true requests return cached=true on the second call."""
+    provider = FakeModelProvider(response=_success_response())
+    cache = FakeResponseCache()
+    client = _client_with_provider(provider, response_cache=cache)
+    first = client.post("/v1/responses", json=_request_body(cache=True))
+    second = client.post("/v1/responses", json=_request_body(cache=True))
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert "cached" not in first.json()
+    assert second.json()["cached"] is True
+    assert second.json()["id"] == first.json()["id"]
+    assert len(provider.requests) == 1
+
+
+def test_post_responses_stream_rejects_cache() -> None:
+    """Streaming requests cannot opt in to response cache in this slice."""
+    provider = FakeModelProvider(response=_success_response())
+    client = _client_with_provider(provider)
+    response = client.post("/v1/responses", json=_request_body(stream=True, cache=True))
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "invalid_request"
     assert provider.requests == []

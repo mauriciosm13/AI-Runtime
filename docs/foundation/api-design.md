@@ -94,13 +94,15 @@ When Redis is unavailable, idempotency fails open: the request proceeds without 
 
 Clients send a catalog model name (`model`). The runtime selects the provider through `ModelRouter`; clients do not name a vendor. The catalog maps `gpt-4o` and `gpt-4o-mini` to OpenAI, `claude-3-5-sonnet-20241022` to Anthropic, and `gemini-2.5-flash` to Gemini when those adapters are registered.
 
-Clients send `model`, `messages`, optional `temperature` / `max_output_tokens`, optional `stream` (default `false`), and optional `tools`.
+Clients send `model`, `messages`, optional `temperature` / `max_output_tokens`, optional `stream` (default `false`), optional `tools`, and optional `cache` (default `false`).
 
 `tools` is a list of `{name, description, parameters}` where `parameters` is a JSON Schema object. The runtime does not execute tools. When the model requests a call, `output.tool_calls` contains `{id, name, arguments}`. Clients send results as `role: tool` messages with `tool_call_id`.
 
 `stream: true` combined with `tools` or tool messages is rejected (`422` / `invalid_request`) in this slice. MCP tool servers are a later roadmap item.
 
-When `stream` is omitted or `false`, a successful call returns `200` JSON with `id`, `model`, `output`, and `usage`.
+`cache: true` stores the successful JSON response in Redis under `cache:resp:{organization_id}:{sha256}` with `AI_RUNTIME_RESPONSE_CACHE_TTL_SECONDS` (default 1h). A later identical request (same organization + model, messages, tools, temperature, max_output_tokens) returns that payload with `cached: true`, skips the provider, and does not write usage. The prompt is hashed, not stored. Cache is opt-in; omitting `cache` or setting `false` never reads or writes the cache. Redis failures fail open (miss). `cache: true` plus `stream: true` is rejected (`422` / `invalid_request`). Invalidation is TTL only. This path is distinct from `Idempotency-Key`; a completed idempotency record is replayed first.
+
+When `stream` is omitted or `false`, a successful call returns `200` JSON with `id`, `model`, `output`, and `usage`. Cache hits also include `cached: true`.
 
 When `stream` is `true`, a successful call returns `Content-Type: text/event-stream` with provider-neutral events:
 

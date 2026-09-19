@@ -90,6 +90,7 @@ class GenerationRequest:
     max_output_tokens: int | None = None
     stream: bool = False
     tools: tuple[ToolDefinition, ...] = ()
+    cache: bool = False
 
     def __post_init__(self) -> None:
         _require_non_blank(self.model, "model")
@@ -101,6 +102,8 @@ class GenerationRequest:
             raise DomainValidationError("max_output_tokens must be greater than zero")
         if self.stream and self.uses_tools:
             raise DomainValidationError("tools are not supported for streaming requests.")
+        if self.stream and self.cache:
+            raise DomainValidationError("cache is not supported for streaming requests.")
 
     @property
     def uses_tools(self) -> bool:
@@ -137,6 +140,7 @@ class GenerationResponse:
     model: str
     output: Message
     usage: TokenUsage | None = None
+    cached: bool = False
 
     def __post_init__(self) -> None:
         _require_non_blank(self.id, "id")

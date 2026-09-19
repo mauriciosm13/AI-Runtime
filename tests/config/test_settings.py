@@ -21,6 +21,7 @@ _SETTINGS_ENV_VARS = (
     "AI_RUNTIME_RATE_LIMIT_REQUESTS_PER_MINUTE",
     "AI_RUNTIME_RATE_LIMIT_BURST",
     "AI_RUNTIME_IDEMPOTENCY_TTL_SECONDS",
+    "AI_RUNTIME_RESPONSE_CACHE_TTL_SECONDS",
     "AI_RUNTIME_PROVIDER_MAX_RETRIES",
     "AI_RUNTIME_PROVIDER_RETRY_BASE_DELAY_SECONDS",
     "AI_RUNTIME_PROVIDER_FAILOVER_ENABLED",
@@ -52,6 +53,7 @@ def test_settings_defaults(monkeypatch: MonkeyPatch) -> None:
     assert settings.rate_limit_requests_per_minute == 60
     assert settings.rate_limit_burst == 60
     assert settings.idempotency_ttl_seconds == 86400
+    assert settings.response_cache_ttl_seconds == 3600
     assert settings.provider_max_retries == 2
     assert settings.provider_retry_base_delay_seconds == 0.25
     assert settings.provider_failover_enabled is True

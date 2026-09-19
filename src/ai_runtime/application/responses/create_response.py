@@ -2,11 +2,12 @@
 
 import json
 from collections.abc import AsyncIterator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 from ai_runtime.application.policy.enforce_organization_policy import EnforceOrganizationPolicy, EnforceOrganizationPolicyCommand
 from ai_runtime.application.resilience.provider_executor import ProviderExecutor
+from ai_runtime.application.responses.cache_fingerprint import fingerprint_generation_request
 from ai_runtime.domain.generation import DomainValidationError, GenerationRequest, GenerationResponse
 from ai_runtime.domain.generation import GenerationStreamEvent, Message, MessageRole, TokenUsage, ToolCall
 from ai_runtime.domain.idempotency import IdempotencyConflictError
@@ -16,6 +17,7 @@ from ai_runtime.domain.usage import UsageRecord
 from ai_runtime.ports.cost_estimator import CostEstimator
 from ai_runtime.ports.idempotency_store import IdempotencyCompleted, IdempotencyInProgress, IdempotencyMiss, IdempotencyStore
 from ai_runtime.ports.rate_limiter import RateLimiter
+from ai_runtime.ports.response_cache import ResponseCache
 from ai_runtime.ports.usage_repository import UsageRepository
 
 
@@ -82,6 +84,7 @@ class CreateResponse:
         rate_limiter: RateLimiter,
         idempotency_store: IdempotencyStore,
         enforce_organization_policy: EnforceOrganizationPolicy,
+        response_cache: ResponseCache,
     ) -> None:
         self._provider_executor = provider_executor
         self._usage_records = usage_records
@@ -89,6 +92,7 @@ class CreateResponse:
         self._rate_limiter = rate_limiter
         self._idempotency_store = idempotency_store
         self._enforce_organization_policy = enforce_organization_policy
+        self._response_cache = response_cache
 
     async def execute(self, command: CreateResponseCommand) -> GenerationResponse:
         """Enforce limits, route the model, generate a response, record usage, then return the result.
@@ -112,6 +116,28 @@ class CreateResponse:
             assert isinstance(begin_result, IdempotencyMiss)
             claimed_idempotency = True
 
+        if command.request.cache:
+            cached_payload = await self._response_cache.get(
+                command.organization_id,
+                fingerprint_generation_request(command.request),
+            )
+            if cached_payload is not None:
+                await self._enforce_organization_policy.execute(
+                    EnforceOrganizationPolicyCommand(
+                        organization_id=command.organization_id,
+                        requested_model=command.request.model,
+                        max_output_tokens=command.request.max_output_tokens,
+                    )
+                )
+                response = replace(_deserialize_response(cached_payload), cached=True)
+                if claimed_idempotency and command.idempotency_key is not None:
+                    await self._idempotency_store.complete(
+                        command.organization_id,
+                        command.idempotency_key,
+                        _serialize_response(response),
+                    )
+                return response
+
         try:
 
             async def _before_route(route: ModelRoute) -> None:
@@ -130,6 +156,12 @@ class CreateResponse:
             )
             response = execution.response
             await self._record_usage(command, execution.provider_name, response)
+            if command.request.cache:
+                await self._response_cache.set(
+                    command.organization_id,
+                    fingerprint_generation_request(command.request),
+                    _serialize_response(response),
+                )
             if claimed_idempotency and command.idempotency_key is not None:
                 await self._idempotency_store.complete(
                     command.organization_id,
