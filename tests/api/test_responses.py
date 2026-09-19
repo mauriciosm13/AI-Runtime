@@ -131,6 +131,7 @@ def _client_with_provider(
         return auth_principal
 
     app.dependency_overrides[get_create_response] = override_create_response
+
     async def override_create_prompt_version() -> CreatePromptVersion:
         return CreatePromptVersion(prompt_repository)
 

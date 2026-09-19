@@ -144,8 +144,6 @@ def test_prompt_content_is_never_logged(capfd: Any) -> None:
     assert "SECRET-VALUE-XYZ" not in captured.out + captured.err
 
 
-
-
 def test_prompt_works_with_streaming_and_tools() -> None:
     client, provider = _client()
     client.post("/v1/prompts", json={"name": "p", "messages": [{"role": "user", "content": "Hi {{n}}"}]})
