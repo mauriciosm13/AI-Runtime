@@ -7,7 +7,7 @@ from uuid import UUID, uuid4
 from fastapi.testclient import TestClient
 from httpx2 import Response
 from ai_runtime.api.app import create_app
-from ai_runtime.api.dependencies import get_authenticate_api_key, get_create_response
+from ai_runtime.api.dependencies import get_authenticate_api_key, get_create_response, get_resolve_prompt
 from ai_runtime.api.middleware.request_context import REQUEST_ID_HEADER
 from ai_runtime.application.auth.authenticate_api_key import AuthenticateApiKey
 from ai_runtime.application.policy.enforce_organization_policy import EnforceOrganizationPolicy
@@ -19,6 +19,7 @@ from ai_runtime.domain.generation import GenerationRequest
 from ai_runtime.domain.organization import Organization, OrganizationStatus
 from ai_runtime.infrastructure.security.api_key_crypto import Argon2ApiKeyHasher
 from tests.api.test_responses import FakeModelProvider, _request_body, _success_response
+from tests.application.prompts.fakes import FakePromptRepository, override_resolve_prompt
 from tests.application.policy.test_enforce_organization_policy import FakeOrganizationPolicyRepository
 from tests.application.responses.test_create_response import FakeCostEstimator, FakeIdempotencyStore, FakeRateLimiter, FakeUsageRepository
 from tests.application.responses.test_create_response import FakeResponseCache
@@ -144,6 +145,7 @@ def _client(provider: FakeModelProvider, authenticate: AuthenticateApiKey) -> Te
         return authenticate
 
     app.dependency_overrides[get_create_response] = override_create_response
+    app.dependency_overrides[get_resolve_prompt] = override_resolve_prompt(FakePromptRepository())
     app.dependency_overrides[get_authenticate_api_key] = override_authenticate
     return TestClient(app)
 

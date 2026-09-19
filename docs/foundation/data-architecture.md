@@ -60,6 +60,7 @@ PostgreSQL supports initial operational usage reporting. A dedicated analytics p
 - Authorization and policy reads must use a consistent source of truth before provider invocation.
 - Usage records must include a request identifier so retries and reconciliation can avoid double counting.
 - Provider calls cannot participate in a database transaction; application workflows must model partial failure explicitly.
+- `prompt_templates` (`0007_prompt_templates`) stores operator-authored, immutable, organization-scoped prompt template versions (`id`, `organization_id` FK, `name`, `version`, JSONB `messages`, `created_at`; unique per organization + name + version). This is configuration, not end-user content: variable values and rendered messages are never stored.
 - Retention, deletion, and anonymization policies are product decisions that must be defined before persistent prompt or response content is stored.
 - Database schema changes are versioned migrations and never ad-hoc production changes.
 

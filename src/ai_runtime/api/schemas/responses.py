@@ -2,8 +2,10 @@
 
 from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, model_serializer, model_validator
+from ai_runtime.domain.context import ContextPolicy
 from ai_runtime.domain.generation import DomainValidationError, GenerationRequest, GenerationResponse
 from ai_runtime.domain.generation import Message, MessageRole, TokenUsage, ToolCall, ToolDefinition
+from ai_runtime.domain.prompt import PromptReference
 
 
 class ToolCallSchema(BaseModel):
@@ -99,24 +101,73 @@ class MessageSchema(BaseModel):
         )
 
 
+class PromptReferenceSchema(BaseModel):
+    """Reference to a stored prompt template plus its variable values."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1)
+    version: int | None = Field(default=None, ge=1)
+    variables: dict[str, str] = Field(default_factory=dict)
+
+    def to_domain(self) -> PromptReference:
+        """Map this API payload to a domain PromptReference."""
+        return PromptReference(name=self.name, variables=self.variables, version=self.version)
+
+
+class ContextSchema(BaseModel):
+    """Optional context budget controls."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    max_input_tokens: int | None = Field(default=None, gt=0)
+    truncate: bool = False
+
+    def to_domain(self) -> ContextPolicy:
+        """Map this API payload to a domain ContextPolicy."""
+        return ContextPolicy(max_input_tokens=self.max_input_tokens, truncate=self.truncate)
+
+
 class CreateResponseRequest(BaseModel):
-    """HTTP body for creating a provider-neutral model response."""
+    """HTTP body for creating a provider-neutral model response.
+
+    Exactly one of ``messages`` or ``prompt`` must be provided.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     model: str = Field(min_length=1)
-    messages: list[MessageSchema] = Field(min_length=1)
+    messages: list[MessageSchema] | None = Field(default=None, min_length=1)
+    prompt: PromptReferenceSchema | None = None
+    context: ContextSchema | None = None
     temperature: float | None = Field(default=None, ge=0.0, le=2.0)
     max_output_tokens: int | None = Field(default=None, gt=0)
     stream: bool = False
     tools: list[ToolDefinitionSchema] = Field(default_factory=list)
     cache: bool = False
 
-    def to_domain(self) -> GenerationRequest:
-        """Map this API payload to a domain GenerationRequest."""
+    @model_validator(mode="after")
+    def validate_messages_xor_prompt(self) -> "CreateResponseRequest":
+        """Require exactly one of ``messages`` or ``prompt``."""
+        if (self.messages is None) == (self.prompt is None):
+            raise ValueError("provide exactly one of messages or prompt")
+        return self
+
+    @property
+    def needs_context_check(self) -> bool:
+        """Whether the context builder must run (a prompt or an explicit context was supplied)."""
+        return self.prompt is not None or self.context is not None
+
+    def to_domain(self, messages: tuple[Message, ...] | None = None) -> GenerationRequest:
+        """Map this API payload to a domain GenerationRequest.
+
+        ``messages`` carries the resolved/budgeted messages; when omitted the
+        request's own ``messages`` are used.
+        """
+        resolved = messages if messages is not None else tuple(message.to_domain() for message in self.messages or [])
         return GenerationRequest(
             model=self.model,
-            messages=tuple(message.to_domain() for message in self.messages),
+            messages=resolved,
             temperature=self.temperature,
             max_output_tokens=self.max_output_tokens,
             stream=self.stream,

@@ -42,6 +42,7 @@ AI Runtime sits between an application and one or more AI model providers.
 - The system must record request metadata, model/provider selection, token usage when available, and estimated cost.
 - The system must emit structured logs, metrics, and traces correlated by request identifier.
 - The system must avoid persisting prompt or response content by default; content capture requires an explicit future policy.
+- Operator-authored prompt templates are configuration, a distinct data category from end-user prompt or response content, and may be stored per organization. Variable values and rendered messages are never persisted.
 
 ### Extensibility
 
@@ -71,7 +72,7 @@ The first deployable slice will prove the architecture with a health endpoint, t
 - Chatbot or end-user interface
 - Prompt playground or workflow builder
 - Model training, fine-tuning, or hosting
-- RAG, embeddings, persistent memory, and vector search
+- RAG, embeddings, persistent memory (conversation history), and vector search
 - Full administrative dashboard
 - Multi-region active-active deployment
 

@@ -14,6 +14,8 @@ class ErrorCode(StrEnum):
     MODEL_NOT_AVAILABLE = "model_not_available"
     UNSUPPORTED_MODEL = "unsupported_model"
     CONFLICT = "conflict"
+    PROMPT_NOT_FOUND = "prompt_not_found"
+    CONTEXT_LENGTH_EXCEEDED = "context_length_exceeded"
     PROVIDER_ERROR = "provider_error"
     INTERNAL_ERROR = "internal_error"
 

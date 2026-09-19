@@ -6,12 +6,13 @@ from collections.abc import AsyncIterator
 from typing import Annotated, Any
 from fastapi import APIRouter, Header
 from fastapi.responses import StreamingResponse
-from ai_runtime.api.dependencies import AuthenticatedPrincipalDep, CreateResponseDep, RequestIdDep
+from ai_runtime.api.dependencies import AuthenticatedPrincipalDep, BuildContextDep, CreateResponseDep, RequestIdDep, ResolvePromptDep
 from ai_runtime.api.errors import APIError, ErrorCode
 from ai_runtime.api.schemas.errors import ErrorResponseSchema
 from ai_runtime.api.schemas.responses import CreateResponseRequest, ResponseSchema
 from ai_runtime.application.responses.create_response import CreateResponseCommand
-from ai_runtime.domain.generation import GenerationDelta, GenerationStreamEvent
+from ai_runtime.domain.context import ContextPolicy
+from ai_runtime.domain.generation import GenerationDelta, GenerationStreamEvent, Message
 from ai_runtime.providers.errors import ProviderError
 
 router = APIRouter(tags=["responses"])
@@ -78,7 +79,8 @@ def _format_stream_error(err: ProviderError, request_id: str) -> str:
         401: {"model": ErrorResponseSchema, "description": "Missing or invalid API key"},
         403: {"model": ErrorResponseSchema, "description": "Organization suspended or model not entitled"},
         409: {"model": ErrorResponseSchema, "description": "Idempotency key already in progress"},
-        422: {"model": ErrorResponseSchema, "description": "Invalid request"},
+        404: {"model": ErrorResponseSchema, "description": "Prompt template not found"},
+        422: {"model": ErrorResponseSchema, "description": "Invalid request or context budget exceeded"},
         429: {"model": ErrorResponseSchema, "description": "Organization rate limit exceeded"},
         502: {"model": ErrorResponseSchema, "description": "Provider failure"},
     },
@@ -88,11 +90,25 @@ async def post_responses(
     use_case: CreateResponseDep,
     principal: AuthenticatedPrincipalDep,
     request_id: RequestIdDep,
+    resolve_prompt: ResolvePromptDep,
+    build_context: BuildContextDep,
     idempotency_key_header: Annotated[str | None, Header(alias=_IDEMPOTENCY_KEY_HEADER)] = None,
 ) -> ResponseSchema | StreamingResponse:
     """Create a provider-neutral model response and record usage accounting."""
+    messages: tuple[Message, ...] | None = None
+    if body.prompt is not None:
+        messages = await resolve_prompt.execute(principal.organization_id, body.prompt.to_domain())
+    if body.needs_context_check:
+        current = messages if messages is not None else tuple(item.to_domain() for item in body.messages or [])
+        messages = build_context.execute(
+            model=body.model,
+            messages=current,
+            tools=[tool.to_domain() for tool in body.tools],
+            max_output_tokens=body.max_output_tokens,
+            policy=body.context.to_domain() if body.context is not None else ContextPolicy(),
+        )
     command = CreateResponseCommand(
-        request=body.to_domain(),
+        request=body.to_domain(messages),
         request_id=request_id,
         organization_id=principal.organization_id,
         api_key_id=principal.api_key_id,
