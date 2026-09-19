@@ -84,3 +84,16 @@ def resolve_route_chain(
             continue
         seen_models.add(fallback_model)
     return tuple(chain)
+
+
+# Maximum context window (input + output tokens) per catalog model.
+# gpt-4o, gpt-4o-mini and gemini-2.5-flash verified against provider docs on 2026-09-18.
+# claude-3-5-sonnet-20241022 (200k) is NOT verified: it no longer appears in Anthropic's current model docs.
+DEFAULT_MODEL_CONTEXT_WINDOWS: Mapping[str, int] = MappingProxyType(
+    {
+        "gpt-4o-mini": 128_000,
+        "gpt-4o": 128_000,
+        "claude-3-5-sonnet-20241022": 200_000,
+        "gemini-2.5-flash": 1_048_576,
+    }
+)

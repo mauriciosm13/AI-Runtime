@@ -7,9 +7,11 @@ from ai_runtime.api.errors import APIError, ErrorCode
 from ai_runtime.api.middleware.request_context import REQUEST_ID_HEADER, get_request_id
 from ai_runtime.api.schemas.errors import ErrorDetailSchema, ErrorResponseSchema
 from ai_runtime.application.routing.model_router import ProviderNotRegisteredError
+from ai_runtime.domain.context import ContextLimitExceededError
 from ai_runtime.domain.generation import DomainValidationError
 from ai_runtime.domain.idempotency import IdempotencyConflictError
 from ai_runtime.domain.organization_policy import ModelNotAvailableError, QuotaExceededError
+from ai_runtime.domain.prompt import PromptNotFoundError, PromptVersionConflictError
 from ai_runtime.domain.rate_limit import RateLimitExceededError
 from ai_runtime.domain.routing import UnsupportedModelError
 from ai_runtime.providers.errors import ProviderError
@@ -139,6 +141,39 @@ async def idempotency_conflict_handler(request: Request, err: Exception) -> JSON
     )
 
 
+async def prompt_not_found_handler(request: Request, err: Exception) -> JSONResponse:
+    """Normalize missing prompt templates to HTTP 404."""
+    assert isinstance(err, PromptNotFoundError)
+    return _error_response(
+        status_code=404,
+        code=ErrorCode.PROMPT_NOT_FOUND,
+        message=str(err),
+        request_id=get_request_id(request),
+    )
+
+
+async def prompt_version_conflict_handler(request: Request, err: Exception) -> JSONResponse:
+    """Normalize concurrent prompt version creation to HTTP 409."""
+    assert isinstance(err, PromptVersionConflictError)
+    return _error_response(
+        status_code=409,
+        code=ErrorCode.CONFLICT,
+        message=str(err),
+        request_id=get_request_id(request),
+    )
+
+
+async def context_limit_exceeded_handler(request: Request, err: Exception) -> JSONResponse:
+    """Normalize context budget failures to HTTP 422."""
+    assert isinstance(err, ContextLimitExceededError)
+    return _error_response(
+        status_code=422,
+        code=ErrorCode.CONTEXT_LENGTH_EXCEEDED,
+        message=str(err),
+        request_id=get_request_id(request),
+    )
+
+
 async def provider_not_registered_handler(request: Request, err: Exception) -> JSONResponse:
     """Normalize catalog routes whose provider adapter is not configured."""
     assert isinstance(err, ProviderNotRegisteredError)
@@ -180,6 +215,9 @@ def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(QuotaExceededError, quota_exceeded_handler)
     app.add_exception_handler(ModelNotAvailableError, model_not_available_handler)
     app.add_exception_handler(UnsupportedModelError, unsupported_model_handler)
+    app.add_exception_handler(PromptNotFoundError, prompt_not_found_handler)
+    app.add_exception_handler(PromptVersionConflictError, prompt_version_conflict_handler)
+    app.add_exception_handler(ContextLimitExceededError, context_limit_exceeded_handler)
     app.add_exception_handler(ProviderNotRegisteredError, provider_not_registered_handler)
     app.add_exception_handler(IdempotencyConflictError, idempotency_conflict_handler)
     app.add_exception_handler(ProviderError, provider_error_handler)

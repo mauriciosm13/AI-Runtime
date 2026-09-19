@@ -20,10 +20,10 @@ def test_alembic_ini_script_location() -> None:
 
 
 def test_migration_revision_chain() -> None:
-    """Alembic revisions form a single linear chain ending at organization_policies."""
+    """Alembic revisions form a single linear chain ending at prompt_templates."""
     config = Config(str(_REPO_ROOT / "alembic.ini"))
     script = ScriptDirectory.from_config(config)
-    assert script.get_heads() == ["0005_organization_policies"]
+    assert script.get_heads() == ["0007_prompt_templates"]
     baseline = script.get_revision("0001_baseline")
     assert baseline is not None
     assert baseline.down_revision is None
@@ -39,6 +39,9 @@ def test_migration_revision_chain() -> None:
     organization_policies = script.get_revision("0005_organization_policies")
     assert organization_policies is not None
     assert organization_policies.down_revision == "0004_usage_records"
+    prompt_templates = script.get_revision("0007_prompt_templates")
+    assert prompt_templates is not None
+    assert prompt_templates.down_revision == "0005_organization_policies"
 
 
 def test_get_alembic_database_url_uses_settings(monkeypatch: MonkeyPatch) -> None:

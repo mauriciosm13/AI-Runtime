@@ -10,7 +10,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from ai_runtime.api.errors import APIError, ErrorCode
 from ai_runtime.api.middleware.request_context import get_request_id
 from ai_runtime.application.auth.authenticate_api_key import AuthenticateApiKey, AuthenticatedPrincipal
+from ai_runtime.application.context.build_context import BuildContext
 from ai_runtime.application.policy.enforce_organization_policy import EnforceOrganizationPolicy
+from ai_runtime.application.prompts.create_prompt_version import CreatePromptVersion
+from ai_runtime.application.prompts.get_prompt_versions import GetPromptVersions
+from ai_runtime.application.prompts.resolve_prompt import ResolvePrompt
 from ai_runtime.application.resilience.provider_executor import ProviderExecutor
 from ai_runtime.application.responses.create_response import CreateResponse
 from ai_runtime.application.routing.model_router import ModelRouter
@@ -20,10 +24,12 @@ from ai_runtime.domain.organization import OrganizationSuspendedError
 from ai_runtime.infrastructure.db import create_db_engine, create_session_factory
 from ai_runtime.infrastructure.db.repositories.api_key_repository import SqlAlchemyApiKeyRepository
 from ai_runtime.infrastructure.db.repositories.organization_policy_repository import SqlAlchemyOrganizationPolicyRepository
+from ai_runtime.infrastructure.db.repositories.prompt_repository import SqlAlchemyPromptRepository
 from ai_runtime.infrastructure.db.repositories.organization_repository import SqlAlchemyOrganizationRepository
 from ai_runtime.infrastructure.db.repositories.usage_repository import SqlAlchemyUsageRepository
 from ai_runtime.infrastructure.pricing import StaticCostEstimator
 from ai_runtime.infrastructure.redis import RedisIdempotencyStore, RedisRateLimiter, RedisResponseCache, create_redis_client
+from ai_runtime.infrastructure.tokens import HeuristicTokenCounter
 from ai_runtime.infrastructure.security.api_key_crypto import Argon2ApiKeyHasher
 from ai_runtime.ports.model_provider import ModelProvider
 from ai_runtime.providers.anthropic.adapter import AnthropicModelProvider
@@ -158,6 +164,31 @@ async def get_create_response(request: Request, session: DbSessionDep) -> Create
 
 
 CreateResponseDep = Annotated[CreateResponse, Depends(get_create_response)]
+
+
+async def get_create_prompt_version(session: DbSessionDep) -> CreatePromptVersion:
+    """Build CreatePromptVersion with a request-scoped repository."""
+    return CreatePromptVersion(SqlAlchemyPromptRepository(session))
+
+
+async def get_prompt_versions(session: DbSessionDep) -> GetPromptVersions:
+    """Build GetPromptVersions with a request-scoped repository."""
+    return GetPromptVersions(SqlAlchemyPromptRepository(session))
+
+
+async def get_resolve_prompt(session: DbSessionDep) -> ResolvePrompt:
+    """Build ResolvePrompt with a request-scoped repository."""
+    return ResolvePrompt(SqlAlchemyPromptRepository(session))
+
+
+async def get_build_context(request: Request) -> BuildContext:
+    """Build BuildContext using the heuristic token counter and configured failover."""
+    settings: Settings = request.app.state.settings
+    return BuildContext(HeuristicTokenCounter(), failover_enabled=settings.provider_failover_enabled)
+
+
+ResolvePromptDep = Annotated[ResolvePrompt, Depends(get_resolve_prompt)]
+BuildContextDep = Annotated[BuildContext, Depends(get_build_context)]
 
 
 def require_request_id(request: Request) -> str:

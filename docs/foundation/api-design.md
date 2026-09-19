@@ -17,6 +17,8 @@ The table describes the planned initial API surface. `Planned` routes document t
 | `GET` | `/health` | First endpoint | Liveness: confirms the process can serve HTTP. |
 | `GET` | `/ready` | Planned | Readiness: confirms required runtime dependencies are usable. |
 | `POST` | `/v1/responses` | Implemented | Creates a provider-neutral model response. |
+| `POST` | `/v1/prompts` | Implemented | Creates the next immutable version of an organization prompt template. |
+| `GET` | `/v1/prompts/{name}` | Implemented | Lists the versions of an organization prompt template. |
 | `GET` | `/v1/models` | Planned | Lists models available to the authenticated organization. |
 | `POST` | `/v1/organizations` | Planned, operator-only | Creates an organization. |
 | `GET` | `/v1/organizations/{organization_id}` | Planned, operator-only | Retrieves organization configuration. |
@@ -101,6 +103,12 @@ Clients send `model`, `messages`, optional `temperature` / `max_output_tokens`, 
 `stream: true` combined with `tools` or tool messages is rejected (`422` / `invalid_request`) in this slice. MCP tool servers are a later roadmap item.
 
 `cache: true` stores the successful JSON response in Redis under `cache:resp:{organization_id}:{sha256}` with `AI_RUNTIME_RESPONSE_CACHE_TTL_SECONDS` (default 1h). A later identical request (same organization + model, messages, tools, temperature, max_output_tokens) returns that payload with `cached: true`, skips the provider, and does not write usage. The prompt is hashed, not stored. Cache is opt-in; omitting `cache` or setting `false` never reads or writes the cache. Redis failures fail open (miss). `cache: true` plus `stream: true` is rejected (`422` / `invalid_request`). Invalidation is TTL only. This path is distinct from `Idempotency-Key`; a completed idempotency record is replayed first.
+
+Exactly one of `messages` or `prompt` is required (`422` / `invalid_request` otherwise). `prompt` is `{ "name": "...", "version": 2, "variables": { "k": "v" } }`; `version` defaults to the latest. The named template is loaded for the caller's organization and rendered into `messages` before generation, so `stream`, `tools`, `cache`, and `Idempotency-Key` behave as they do with raw messages, and the cache key is computed from the rendered messages. Variable names must match the template's `{{placeholders}}` exactly (`422` otherwise); values are strings substituted literally. An unknown name or version returns `404` / `prompt_not_found`.
+
+`context` is optional: `{ "max_input_tokens": 4000, "truncate": true }`. When `prompt` or `context` is present, the runtime estimates input tokens and enforces the smallest context window among the requested model and its failover candidates (minus `max_output_tokens`). Over budget returns `422` / `context_length_exceeded`; with `truncate: true`, the oldest non-system messages are dropped first, system messages and the latest turn are kept, and tool calls stay paired with their results. Requests with neither field are not budgeted. Token counts are estimates, not billing figures.
+
+`POST /v1/prompts` takes `{ "name": "support.reply", "messages": [{ "role": "system|user|assistant", "content": "... {{var}} ..." }] }` (`name` is 1-64 characters of `[A-Za-z0-9._-]`) and returns `201` with the new immutable `version`, the stored `messages`, and the sorted `variables`. `GET /v1/prompts/{name}` returns `{ "versions": [...] }` in ascending order or `404`. Both are scoped to the API key's organization. Templates are configuration; variable values and rendered content are never stored or logged.
 
 When `stream` is omitted or `false`, a successful call returns `200` JSON with `id`, `model`, `output`, and `usage`. Cache hits also include `cached: true`.
 

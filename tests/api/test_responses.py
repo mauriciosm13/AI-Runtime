@@ -10,7 +10,10 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from ai_runtime.api.app import create_app
-from ai_runtime.api.dependencies import get_authenticated_principal, get_create_response
+from ai_runtime.api.dependencies import get_authenticated_principal, get_create_prompt_version, get_create_response
+from ai_runtime.api.dependencies import get_prompt_versions, get_resolve_prompt
+from ai_runtime.application.prompts.create_prompt_version import CreatePromptVersion
+from ai_runtime.application.prompts.get_prompt_versions import GetPromptVersions
 from ai_runtime.api.middleware.request_context import REQUEST_ID_HEADER
 from ai_runtime.application.auth.authenticate_api_key import AuthenticatedPrincipal
 from ai_runtime.application.policy.enforce_organization_policy import EnforceOrganizationPolicy
@@ -23,6 +26,7 @@ from ai_runtime.domain.organization_policy import ModelEntitlement, Organization
 from ai_runtime.ports.idempotency_store import IdempotencyCompleted, IdempotencyInProgress, IdempotencyMiss
 from ai_runtime.ports.rate_limiter import RateLimitDecision
 from ai_runtime.providers.openai.errors import ProviderError
+from tests.application.prompts.fakes import FakePromptRepository, override_resolve_prompt
 from tests.application.policy.test_enforce_organization_policy import FakeOrganizationPolicyRepository
 from tests.application.responses.test_create_response import FakeCostEstimator, FakeIdempotencyStore, FakeRateLimiter, FakeUsageRepository
 from tests.application.responses.test_create_response import FakeResponseCache
@@ -94,6 +98,7 @@ def _client_with_provider(
     policy_repository: FakeOrganizationPolicyRepository | None = None,
     response_cache: FakeResponseCache | None = None,
     principal: AuthenticatedPrincipal | None = None,
+    prompts: FakePromptRepository | None = None,
 ) -> TestClient:
     """Test client with provider + auth bypassed (generation contract focus)."""
     app = create_app()
@@ -103,6 +108,7 @@ def _client_with_provider(
     policies = policy_repository or FakeOrganizationPolicyRepository()
     cache = response_cache or FakeResponseCache()
     auth_principal = principal or _fake_principal()
+    prompt_repository = prompts or FakePromptRepository()
 
     async def override_create_response() -> CreateResponse:
         enforce_policy = EnforceOrganizationPolicy(policies, records)
@@ -125,6 +131,16 @@ def _client_with_provider(
         return auth_principal
 
     app.dependency_overrides[get_create_response] = override_create_response
+
+    async def override_create_prompt_version() -> CreatePromptVersion:
+        return CreatePromptVersion(prompt_repository)
+
+    async def override_prompt_versions() -> GetPromptVersions:
+        return GetPromptVersions(prompt_repository)
+
+    app.dependency_overrides[get_resolve_prompt] = override_resolve_prompt(prompt_repository)
+    app.dependency_overrides[get_create_prompt_version] = override_create_prompt_version
+    app.dependency_overrides[get_prompt_versions] = override_prompt_versions
     app.dependency_overrides[get_authenticated_principal] = override_principal
     return TestClient(app)
 
@@ -178,6 +194,7 @@ def test_post_responses_records_usage_with_request_id() -> None:
         return principal
 
     app.dependency_overrides[get_create_response] = override_create_response
+    app.dependency_overrides[get_resolve_prompt] = override_resolve_prompt(FakePromptRepository())
     app.dependency_overrides[get_authenticated_principal] = override_principal
     client = TestClient(app)
     response = client.post(
