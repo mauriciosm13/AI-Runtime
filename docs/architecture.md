@@ -103,6 +103,10 @@ The first telemetry capability is structured JSON request logging in `telemetry/
 
 Configuration provides typed, environment-based settings and startup validation. Secrets are referenced through configuration and resolved by the deployment environment; they are never committed to the repository.
 
+### Deployment
+
+The first AWS slice is a Terraform root module at `infra/terraform`. It creates a two-AZ VPC, one NAT gateway, an empty Fargate cluster, and a public HTTP load balancer aimed at port 8000. It does not create an ECS service, container registry, database, cache, secrets store, or CloudWatch resources. CI validates the module and does not apply it. See [ADR 0009](adr/0009-aws-terraform-foundation.md).
+
 ## Expected request flow
 
 ```text
@@ -143,4 +147,4 @@ As code is added, the project should enforce these rules with focused architectu
 
 ## Decision records
 
-Significant, durable decisions are recorded as Architecture Decision Records (ADRs) under `docs/adr/`. An ADR captures the context, decision, consequences, and alternatives at the time of the choice. Current records: [ADR 0001](adr/0001-lightweight-clean-architecture.md) (ports and adapters), [ADR 0002](adr/0002-static-model-catalog-routing.md) (static model catalog), [ADR 0003](adr/0003-bounded-provider-retries-failover.md) (retries and failover), [ADR 0004](adr/0004-sse-streaming-boundary.md) (SSE streaming boundary), [ADR 0005](adr/0005-tool-calling-contract.md) (tool calling), [ADR 0006](adr/0006-opt-in-response-cache.md) (opt-in response cache), [ADR 0007](adr/0007-metrics-tracing-audit.md) (metrics, tracing, and audit), and [ADR 0008](adr/0008-prompt-templates-and-context-builder.md) (prompt templates and context builder).
+Significant, durable decisions are recorded as Architecture Decision Records (ADRs) under `docs/adr/`. An ADR captures the context, decision, consequences, and alternatives at the time of the choice. Current records: [ADR 0001](adr/0001-lightweight-clean-architecture.md) (ports and adapters), [ADR 0002](adr/0002-static-model-catalog-routing.md) (static model catalog), [ADR 0003](adr/0003-bounded-provider-retries-failover.md) (retries and failover), [ADR 0004](adr/0004-sse-streaming-boundary.md) (SSE streaming boundary), [ADR 0005](adr/0005-tool-calling-contract.md) (tool calling), [ADR 0006](adr/0006-opt-in-response-cache.md) (opt-in response cache), [ADR 0007](adr/0007-metrics-tracing-audit.md) (metrics, tracing, and audit), and [ADR 0008](adr/0008-prompt-templates-and-context-builder.md) (prompt templates and context builder), and [ADR 0009](adr/0009-aws-terraform-foundation.md) (AWS Terraform foundation).

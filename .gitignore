@@ -24,5 +24,15 @@ htmlcov/
 # Local environment overrides
 .env
 
+# Terraform local state and provider cache
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+crash.log
+override.tf
+override.tf.json
+
 # AI Software Company operating files (workflow state, not product source)
 ai-company/
