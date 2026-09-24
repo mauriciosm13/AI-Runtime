@@ -42,3 +42,28 @@ output "target_group_arn" {
   description = "IP target group on port 8000. Item 28 registers tasks here."
   value       = aws_lb_target_group.api.arn
 }
+
+output "ecr_repository_url" {
+  description = "Image repository the deploy pipeline pushes to."
+  value       = aws_ecr_repository.api.repository_url
+}
+
+output "ecs_service_name" {
+  description = "API service the deploy pipeline updates."
+  value       = aws_ecs_service.api.name
+}
+
+output "task_definition_family" {
+  description = "Task definition family the deploy pipeline registers revisions in."
+  value       = aws_ecs_task_definition.api.family
+}
+
+output "github_deploy_role_arn" {
+  description = "Role GitHub Actions assumes through OIDC."
+  value       = aws_iam_role.github_deploy.arn
+}
+
+output "log_group_name" {
+  description = "Log group that receives container output."
+  value       = aws_cloudwatch_log_group.api.name
+}

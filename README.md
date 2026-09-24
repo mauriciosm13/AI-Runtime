@@ -31,7 +31,7 @@ Client
   <- Infrastructure / Providers / Telemetry
 ```
 
-See [the architecture guide](docs/architecture.md) for layer responsibilities and dependency rules. Architectural decisions are recorded as ADRs under [docs/adr/](docs/adr/), including [ADR 0001](docs/adr/0001-lightweight-clean-architecture.md), [ADR 0002](docs/adr/0002-static-model-catalog-routing.md), [ADR 0003](docs/adr/0003-bounded-provider-retries-failover.md), [ADR 0004](docs/adr/0004-sse-streaming-boundary.md), [ADR 0005](docs/adr/0005-tool-calling-contract.md), [ADR 0006](docs/adr/0006-opt-in-response-cache.md), [ADR 0007](docs/adr/0007-metrics-tracing-audit.md), [ADR 0008](docs/adr/0008-prompt-templates-and-context-builder.md), and [ADR 0009](docs/adr/0009-aws-terraform-foundation.md).
+See [the architecture guide](docs/architecture.md) for layer responsibilities and dependency rules. Architectural decisions are recorded as ADRs under [docs/adr/](docs/adr/), including [ADR 0001](docs/adr/0001-lightweight-clean-architecture.md), [ADR 0002](docs/adr/0002-static-model-catalog-routing.md), [ADR 0003](docs/adr/0003-bounded-provider-retries-failover.md), [ADR 0004](docs/adr/0004-sse-streaming-boundary.md), [ADR 0005](docs/adr/0005-tool-calling-contract.md), [ADR 0006](docs/adr/0006-opt-in-response-cache.md), [ADR 0007](docs/adr/0007-metrics-tracing-audit.md), [ADR 0008](docs/adr/0008-prompt-templates-and-context-builder.md), [ADR 0009](docs/adr/0009-aws-terraform-foundation.md), and [ADR 0010](docs/adr/0010-ecr-image-pipeline-and-ecs-service.md).
 
 ## Foundation
 
@@ -67,7 +67,7 @@ Dockerfile             # multi-stage image for local execution (includes Alembic
 compose.yaml           # Docker Compose stack (Postgres + migrate + API)
 .env.example           # environment template for Compose runs
 .dockerignore          # build context exclusions
-infra/terraform/       # AWS network, ECS cluster, and load balancer (no apply in CI)
+infra/terraform/       # AWS network, ECS cluster, load balancer, ECR, and ECS service (no apply in CI)
 ```
 
 The project uses a `src/` layout so tests and local tooling exercise the installed package rather than accidentally importing source code from the repository root. Architecture-specific packages are added only when their first use case requires them.
@@ -142,6 +142,7 @@ Pull requests and pushes to `main` run three GitHub Actions workflows:
 | Workflow | What it checks |
 |---|---|
 | [CI](.github/workflows/ci.yml) | Editable install (`pip install -e ".[dev]"`), unit tests (`pytest` with Postgres 17), `ruff check`, `ruff format --check`, `mypy`, and Terraform `fmt` plus `validate` |
+| [Deploy](.github/workflows/deploy.yml) | Builds and pushes an image tagged with the commit SHA to ECR on every push to `main`; deploys to ECS only on a manual run, through GitHub OIDC |
 | [Docker](.github/workflows/docker.yml) | Unit tests (`pytest`), then multi-stage image build (`ai-runtime:ci`), no registry push |
 | [Conventional Commits](.github/workflows/conventional-commits.yml) | Commit messages (`commitlint`) and PR titles (semantic pull request) |
 
