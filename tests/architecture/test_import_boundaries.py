@@ -34,6 +34,12 @@ def _python_files(package: str) -> list[Path]:
     return sorted((_SRC / package).rglob("*.py"))
 
 
+def test_server_package_does_not_import_the_python_sdk() -> None:
+    """The runtime must not depend on the client SDK."""
+    violations = [str(path.relative_to(_SRC)) for path in _SRC.rglob("*.py") if "ai_runtime_sdk" in _top_level_imports(path)]
+    assert violations == []
+
+
 def test_domain_and_application_avoid_infrastructure_frameworks() -> None:
     """domain and application must not import SQLAlchemy, Alembic, FastAPI, httpx, or Redis."""
     violations: list[str] = []

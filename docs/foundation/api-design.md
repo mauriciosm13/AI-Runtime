@@ -170,6 +170,10 @@ This HTTP correlation identifier is distinct from `response.id`, which identifie
 - `409 Conflict` represents an in-flight `Idempotency-Key` collision (`error.code` `conflict`).
 - `502 Bad Gateway` and `503 Service Unavailable` represent normalized upstream/provider failures.
 
+## Python client
+
+`sdk/python` is the supported Python client (`ai-runtime-sdk`, imported as `ai_runtime_sdk`). It calls the implemented `/v1` routes, including SSE on `POST /v1/responses`, and parses the error envelope. It is a separate distribution and is not part of the server process. See [ADR 0011](../adr/0011-python-sdk.md).
+
 ## Evolution rules
 
 - Additive fields and endpoints may be introduced within `/v1` when backward compatible.
