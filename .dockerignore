@@ -6,6 +6,7 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 tests/
+sdk/
 docs/
 .env
 .env.*
