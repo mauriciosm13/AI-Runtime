@@ -1,12 +1,27 @@
 locals {
   container_name = "api"
 
-  # Only non-secret configuration. Database, Redis, and provider credentials
-  # arrive with the data and operations item as Secrets Manager references.
   container_environment = [
     for key, value in var.container_environment : {
       name  = key
       value = value
+    }
+  ]
+
+  # Each entry pulls one JSON key out of the same Secrets Manager secret
+  # (secrets.tf); ECS resolves these into plain environment variables before
+  # the container starts, so Settings never sees a difference from a literal
+  # `environment` entry.
+  container_secrets = [
+    for name, json_key in {
+      AI_RUNTIME_DATABASE_URL      = "database_url"
+      AI_RUNTIME_REDIS_URL         = "redis_url"
+      AI_RUNTIME_OPENAI_API_KEY    = "openai_api_key"
+      AI_RUNTIME_ANTHROPIC_API_KEY = "anthropic_api_key"
+      AI_RUNTIME_GEMINI_API_KEY    = "gemini_api_key"
+      } : {
+      name      = name
+      valueFrom = "${aws_secretsmanager_secret.app.arn}:${json_key}::"
     }
   ]
 }
@@ -34,6 +49,7 @@ resource "aws_ecs_task_definition" "api" {
       ]
 
       environment = local.container_environment
+      secrets     = local.container_secrets
 
       logConfiguration = {
         logDriver = "awslogs"

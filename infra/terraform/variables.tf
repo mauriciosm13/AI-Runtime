@@ -94,3 +94,70 @@ variable "container_environment" {
     AI_RUNTIME_LOG_LEVEL = "INFO"
   }
 }
+
+variable "provider_api_keys" {
+  description = "OpenAI, Anthropic, and Gemini API keys, stored in Secrets Manager. Keys: openai, anthropic, gemini. Missing keys are stored as an empty string."
+  type        = map(string)
+  default     = {}
+  sensitive   = true
+}
+
+variable "db_name" {
+  description = "Name of the application database created on the RDS instance."
+  type        = string
+  default     = "ai_runtime"
+}
+
+variable "db_username" {
+  description = "Master username for the RDS instance."
+  type        = string
+  default     = "ai_runtime"
+}
+
+variable "db_instance_class" {
+  description = "RDS instance class."
+  type        = string
+  default     = "db.t4g.micro"
+}
+
+variable "db_allocated_storage_gb" {
+  description = "Allocated storage for the RDS instance, in GiB."
+  type        = number
+  default     = 20
+}
+
+variable "db_engine_version" {
+  description = "PostgreSQL major/minor version for RDS."
+  type        = string
+  default     = "16.4"
+}
+
+variable "db_backup_retention_days" {
+  description = "Number of days RDS keeps automated backups."
+  type        = number
+  default     = 7
+}
+
+variable "db_multi_az" {
+  description = "Whether the RDS instance runs Multi-AZ."
+  type        = bool
+  default     = false
+}
+
+variable "redis_node_type" {
+  description = "ElastiCache node type."
+  type        = string
+  default     = "cache.t4g.micro"
+}
+
+variable "redis_engine_version" {
+  description = "Redis engine version for ElastiCache."
+  type        = string
+  default     = "7.1"
+}
+
+variable "alarm_email" {
+  description = "Email address subscribed to the CloudWatch alarm SNS topic. Empty string creates no subscription."
+  type        = string
+  default     = ""
+}

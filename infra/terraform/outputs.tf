@@ -67,3 +67,28 @@ output "log_group_name" {
   description = "Log group that receives container output."
   value       = aws_cloudwatch_log_group.api.name
 }
+
+output "db_instance_endpoint" {
+  description = "RDS endpoint, host:port."
+  value       = aws_db_instance.this.endpoint
+}
+
+output "redis_primary_endpoint" {
+  description = "ElastiCache primary endpoint."
+  value       = aws_elasticache_replication_group.this.primary_endpoint_address
+}
+
+output "app_secret_arn" {
+  description = "Secrets Manager secret holding database_url, redis_url, and provider API keys."
+  value       = aws_secretsmanager_secret.app.arn
+}
+
+output "cloudwatch_dashboard_name" {
+  description = "CloudWatch dashboard covering ECS, ALB, RDS, and ElastiCache."
+  value       = aws_cloudwatch_dashboard.this.dashboard_name
+}
+
+output "alerts_topic_arn" {
+  description = "SNS topic every CloudWatch alarm publishes to."
+  value       = aws_sns_topic.alerts.arn
+}
