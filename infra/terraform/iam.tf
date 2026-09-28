@@ -40,8 +40,10 @@ resource "aws_iam_role_policy" "task_execution_logs" {
   policy = data.aws_iam_policy_document.task_execution_logs.json
 }
 
-# The application's own identity. It needs no AWS permissions yet; it exists so
-# the data and operations item can attach secret reads without replacing the service.
+# The application's own identity. It needs no AWS permissions: the app reads
+# database_url, redis_url, and provider keys from its environment, and ECS
+# resolves those `secrets` entries with the task execution role, not this one,
+# before the container ever starts (see secrets.tf).
 resource "aws_iam_role" "task" {
   name               = "${local.name_prefix}-task"
   assume_role_policy = data.aws_iam_policy_document.ecs_tasks_assume.json

@@ -1,22 +1,29 @@
 # AWS foundation
 
-Terraform root module for one environment. It creates the network, the cluster, the image repository, and the service that runs the runtime image.
+Terraform root module for one environment. It creates the network, the cluster, the image repository, the service that runs the runtime image, its data stores, and its observability.
 
-This module does not create a database, Redis, secrets, or CloudWatch dashboards and alarms. CI runs `terraform fmt` and `terraform validate`. It does not apply.
+CI runs `terraform fmt` and `terraform validate`. It does not apply.
 
 ## What apply creates
 
 - VPC with DNS support, two public subnets, and two private subnets
 - Internet gateway and one NAT gateway in the first public subnet
-- Security groups for the load balancer and API tasks
+- Security groups for the load balancer, API tasks, RDS, and ElastiCache
 - ECS cluster with Fargate and Fargate Spot capacity providers
 - Public HTTP load balancer and an IP target group for `GET /health` on port 8000
 - ECR repository with immutable tags, scan on push, and a lifecycle policy
 - Task definition, ECS service in the private subnets behind the target group, with a deployment circuit breaker and rollback
 - Task execution role, an empty task role, and one CloudWatch log group
 - GitHub OIDC provider and a deploy role for GitHub Actions
+- Single-AZ RDS PostgreSQL instance and single-node ElastiCache Redis replication group, both in the private subnets, reachable only from the API tasks' security group
+- One Secrets Manager secret holding `database_url`, `redis_url`, and the three provider API keys, injected into the task as `secrets` (never as plaintext `environment`)
+- CloudWatch alarms for ECS CPU/memory, ALB 5xx and unhealthy hosts, RDS CPU/storage/memory, and ElastiCache CPU/memory, all publishing to one SNS topic, plus a dashboard aggregating the same metrics
 
-NAT and the load balancer are billed while they exist. The service runs `desired_count` Fargate tasks.
+NAT, the load balancer, RDS, and ElastiCache are billed while they exist. The service runs `desired_count` Fargate tasks.
+
+## Secrets
+
+Set `provider_api_keys = { openai = "...", anthropic = "...", gemini = "..." }` in a git-ignored `*.tfvars` file before applying; any key left out is stored as an empty string. `database_url` and `redis_url` are composed by this module from the RDS and ElastiCache endpoints and a generated RDS password — nothing to set for those. Rotating a key means updating the `.tfvars` file and re-applying; Terraform writes a new secret version, and the next task deployment or restart picks it up.
 
 ## Deploying
 
@@ -39,15 +46,13 @@ First deploy: `terraform apply` creates a service whose `bootstrap` image does n
 
 ## Limitation
 
-There is no database, Redis, or provider API key yet. A deployed task serves `GET /health`, which is what keeps it in service, but `POST /v1/responses` fails until the data and operations item adds them.
+Redis traffic is unencrypted in transit (still private-subnet-only; see the tradeoff note in `elasticache.tf`). TLS on the load balancer stays off until a domain and certificate exist — the listener is HTTP on port 80.
 
 ## Deferred
 
 | Later item | Left out of this module |
 | --- | --- |
-| 29 — data and operations | RDS, ElastiCache, Secrets Manager, CloudWatch dashboards and alarms |
-
-TLS stays off until a domain and certificate exist. The listener is HTTP on port 80.
+| 32 — pgvector and retrieval | pgvector extension, embeddings storage, semantic retrieval wiring |
 
 ## State
 
