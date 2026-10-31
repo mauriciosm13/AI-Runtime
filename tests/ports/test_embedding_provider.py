@@ -12,10 +12,7 @@ class FakeEmbeddingProvider:
         return EmbeddingResponse(
             id="fake_emb_1",
             model=request.model,
-            data=tuple(
-                EmbeddingVector(index=position, values=(float(position), 1.0))
-                for position, _text in enumerate(request.input)
-            ),
+            data=tuple(EmbeddingVector(index=position, values=(float(position), 1.0)) for position, _text in enumerate(request.input)),
             usage=EmbeddingUsage(input_tokens=len(request.input)),
         )
 
