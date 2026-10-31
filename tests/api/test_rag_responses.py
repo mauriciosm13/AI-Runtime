@@ -3,7 +3,7 @@
 from uuid import UUID, uuid4
 from fastapi.testclient import TestClient
 from ai_runtime.api.app import create_app
-from ai_runtime.api.dependencies import get_augment_messages_with_rag, get_authenticated_principal, get_create_response, get_resolve_prompt
+from ai_runtime.api.dependencies import get_augment_messages_with_rag, get_authenticated_principal, get_create_response, get_resolve_prompt, get_resolve_tools_for_generation
 from ai_runtime.application.auth.authenticate_api_key import AuthenticatedPrincipal
 from ai_runtime.application.policy.enforce_organization_policy import EnforceOrganizationPolicy
 from ai_runtime.application.rag.augment_messages_with_rag import AugmentMessagesWithRag
@@ -19,6 +19,7 @@ from tests.application.policy.test_enforce_organization_policy import FakeOrgani
 from tests.application.responses.test_create_response import FakeAuditRepository, FakeCostEstimator, FakeIdempotencyStore
 from tests.application.responses.test_create_response import FakeMetrics, FakeRateLimiter, FakeResponseCache, FakeUsageRepository
 from tests.application.prompts.fakes import FakePromptRepository, override_resolve_prompt
+from tests.application.mcp.fakes import override_resolve_tools_for_generation
 from tests.application.rag.fakes import override_augment_messages_with_rag
 from tests.application.semantic.test_index_and_search import FakeSemanticRetrievalRepository
 
@@ -86,6 +87,7 @@ def _client_with_rag(
 
     app.dependency_overrides[get_create_response] = override_create_response
     app.dependency_overrides[get_augment_messages_with_rag] = override_augment_messages_with_rag(augment)
+    app.dependency_overrides[get_resolve_tools_for_generation] = override_resolve_tools_for_generation()
     app.dependency_overrides[get_authenticated_principal] = override_principal
     app.dependency_overrides[get_resolve_prompt] = override_resolve_prompt(FakePromptRepository())
     return TestClient(app)
@@ -182,6 +184,7 @@ def test_post_responses_rag_missing_embedding_provider_returns_503() -> None:
 
     app.dependency_overrides[get_create_response] = override_create_response
     app.dependency_overrides[get_augment_messages_with_rag] = override_augment_messages_with_rag(augment)
+    app.dependency_overrides[get_resolve_tools_for_generation] = override_resolve_tools_for_generation()
     app.dependency_overrides[get_authenticated_principal] = override_principal
     app.dependency_overrides[get_resolve_prompt] = override_resolve_prompt(FakePromptRepository())
     client = TestClient(app)

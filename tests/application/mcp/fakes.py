@@ -1,9 +1,10 @@
 """Test doubles for MCP use cases."""
 
+from collections.abc import Awaitable, Callable, Sequence
 from uuid import UUID
+from ai_runtime.application.mcp.resolve_tools_for_generation import ResolveToolsForGeneration
 from ai_runtime.domain.generation import ToolDefinition
 from ai_runtime.domain.mcp import McpServer
-from ai_runtime.application.mcp.resolve_tools_for_generation import ResolveToolsForGeneration
 
 
 class FakeMcpServerRepository:
@@ -39,3 +40,29 @@ class PassthroughResolveTools(ResolveToolsForGeneration):
 
     def __init__(self, repository: FakeMcpServerRepository, client: FakeMcpToolClient) -> None:
         super().__init__(repository, client)
+
+
+class InlineOnlyResolveTools:
+    """Resolve use case that ignores MCP and returns inline tools only."""
+
+    async def execute(
+        self,
+        _organization_id: UUID,
+        inline_tools: Sequence[ToolDefinition],
+        server_names: Sequence[str],
+    ) -> tuple[ToolDefinition, ...]:
+        if server_names:
+            msg = "unexpected MCP server resolution in test without MCP override"
+            raise RuntimeError(msg)
+        return tuple(inline_tools)
+
+
+def override_resolve_tools_for_generation(
+    resolver: InlineOnlyResolveTools | ResolveToolsForGeneration | PassthroughResolveTools | None = None,
+) -> Callable[[], Awaitable[InlineOnlyResolveTools | ResolveToolsForGeneration | PassthroughResolveTools]]:
+    """FastAPI override factory for ``get_resolve_tools_for_generation``."""
+
+    async def _override() -> InlineOnlyResolveTools | ResolveToolsForGeneration | PassthroughResolveTools:
+        return InlineOnlyResolveTools() if resolver is None else resolver
+
+    return _override
