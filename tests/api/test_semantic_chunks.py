@@ -26,6 +26,7 @@ def _embedding(*, first: float = 1.0) -> tuple[float, ...]:
 
 
 def _seed_organization(organizations: FakeOrganizationRepository, org_id: UUID) -> None:
+    now = datetime.now(UTC)
     asyncio.run(
         organizations.add(
             Organization(
@@ -33,7 +34,8 @@ def _seed_organization(organizations: FakeOrganizationRepository, org_id: UUID) 
                 slug="test-org",
                 name="Test Org",
                 status=OrganizationStatus.ACTIVE,
-                created_at=datetime.now(UTC),
+                created_at=now,
+                updated_at=now,
             )
         )
     )

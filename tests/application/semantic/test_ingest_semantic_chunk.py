@@ -49,6 +49,7 @@ def test_ingest_embeds_content_and_persists_chunk() -> None:
     chunks = FakeSemanticRetrievalRepository()
     organizations = FakeOrganizationRepository()
     org_id = uuid4()
+    now = datetime.now(UTC)
     asyncio.run(
         organizations.add(
             Organization(
@@ -56,7 +57,8 @@ def test_ingest_embeds_content_and_persists_chunk() -> None:
                 slug="acme",
                 name="Acme",
                 status=OrganizationStatus.ACTIVE,
-                created_at=datetime.now(UTC),
+                created_at=now,
+                updated_at=now,
             )
         )
     )
