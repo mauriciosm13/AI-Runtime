@@ -4,12 +4,19 @@ from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 from typing import Annotated
 import httpx
+import secrets
 from fastapi import Depends, FastAPI, Request
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from ai_runtime.api.errors import APIError, ErrorCode
 from ai_runtime.api.middleware.request_context import get_request_id
+from ai_runtime.application.api_keys.create_api_key import CreateApiKey
+from ai_runtime.application.api_keys.list_api_keys import ListApiKeysForOrganization
+from ai_runtime.application.api_keys.revoke_api_key import RevokeApiKey
+from ai_runtime.application.api_keys.rotate_api_key import RotateApiKey
 from ai_runtime.application.auth.authenticate_api_key import AuthenticateApiKey, AuthenticatedPrincipal
+from ai_runtime.application.organizations.create_organization import CreateOrganization
+from ai_runtime.application.organizations.get_organization import GetOrganization
 from ai_runtime.application.context.build_context import BuildContext
 from ai_runtime.application.policy.enforce_organization_policy import EnforceOrganizationPolicy
 from ai_runtime.application.prompts.create_prompt_version import CreatePromptVersion
@@ -39,6 +46,9 @@ from ai_runtime.providers.openai.adapter import OpenAIModelProvider
 
 _UNAUTHORIZED_MESSAGE = "Invalid or missing API key."
 _FORBIDDEN_SUSPENDED_MESSAGE = "Organization is suspended."
+_OPERATOR_UNAUTHORIZED_MESSAGE = "Invalid or missing operator credentials."
+_OPERATOR_FORBIDDEN_MESSAGE = "This endpoint is restricted to platform operators."
+_OPERATOR_NOT_CONFIGURED_MESSAGE = "Operator API is not configured."
 
 
 def build_model_providers(settings: Settings, http_client: httpx.AsyncClient) -> Mapping[str, ModelProvider]:
@@ -97,18 +107,27 @@ async def get_db_session(request: Request) -> AsyncIterator[AsyncSession]:
 DbSessionDep = Annotated[AsyncSession, Depends(get_db_session)]
 
 
+def _extract_bearer_credentials(request: Request, *, unauthorized_message: str) -> str:
+    authorization = request.headers.get("Authorization")
+    if authorization is None or not authorization.strip():
+        raise APIError(code=ErrorCode.UNAUTHORIZED, message=unauthorized_message, status_code=401)
+    scheme, _, credentials = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not credentials.strip():
+        raise APIError(code=ErrorCode.UNAUTHORIZED, message=unauthorized_message, status_code=401)
+    return credentials.strip()
+
+
 def extract_bearer_token(request: Request) -> str:
     """Extract the bearer secret from the Authorization header.
 
     Raises ``APIError`` with 401 for missing, blank, or non-Bearer credentials.
     """
-    authorization = request.headers.get("Authorization")
-    if authorization is None or not authorization.strip():
-        raise APIError(code=ErrorCode.UNAUTHORIZED, message=_UNAUTHORIZED_MESSAGE, status_code=401)
-    scheme, _, credentials = authorization.partition(" ")
-    if scheme.lower() != "bearer" or not credentials.strip():
-        raise APIError(code=ErrorCode.UNAUTHORIZED, message=_UNAUTHORIZED_MESSAGE, status_code=401)
-    return credentials.strip()
+    return _extract_bearer_credentials(request, unauthorized_message=_UNAUTHORIZED_MESSAGE)
+
+
+def extract_operator_bearer_token(request: Request) -> str:
+    """Extract the bearer secret for operator routes."""
+    return _extract_bearer_credentials(request, unauthorized_message=_OPERATOR_UNAUTHORIZED_MESSAGE)
 
 
 async def get_authenticate_api_key(session: DbSessionDep) -> AuthenticateApiKey:
@@ -140,6 +159,88 @@ async def get_authenticated_principal(
 
 
 AuthenticatedPrincipalDep = Annotated[AuthenticatedPrincipal, Depends(get_authenticated_principal)]
+
+
+async def require_operator(
+    request: Request,
+    settings: Annotated[Settings, Depends(get_settings)],
+    authenticate: AuthenticateApiKeyDep,
+) -> None:
+    """Authorize platform operator routes via a static bearer token."""
+    configured_operator_token = settings.operator_token.strip()
+    if not configured_operator_token:
+        raise APIError(
+            code=ErrorCode.PROVIDER_ERROR,
+            message=_OPERATOR_NOT_CONFIGURED_MESSAGE,
+            status_code=503,
+        )
+    secret = extract_operator_bearer_token(request)
+    if secrets.compare_digest(secret, configured_operator_token):
+        return
+    try:
+        await authenticate.execute(secret)
+    except OrganizationSuspendedError as err:
+        raise APIError(
+            code=ErrorCode.FORBIDDEN,
+            message=_OPERATOR_FORBIDDEN_MESSAGE,
+            status_code=403,
+        ) from err
+    except InvalidApiKeyCredentialsError as err:
+        raise APIError(
+            code=ErrorCode.UNAUTHORIZED,
+            message=_OPERATOR_UNAUTHORIZED_MESSAGE,
+            status_code=401,
+        ) from err
+    raise APIError(
+        code=ErrorCode.FORBIDDEN,
+        message=_OPERATOR_FORBIDDEN_MESSAGE,
+        status_code=403,
+    )
+
+
+OperatorDep = Annotated[None, Depends(require_operator)]
+
+
+async def get_create_organization(session: DbSessionDep) -> CreateOrganization:
+    """Build CreateOrganization with a request-scoped repository."""
+    return CreateOrganization(SqlAlchemyOrganizationRepository(session))
+
+
+async def get_organization(session: DbSessionDep) -> GetOrganization:
+    """Build GetOrganization with a request-scoped repository."""
+    return GetOrganization(SqlAlchemyOrganizationRepository(session))
+
+
+async def get_create_api_key(session: DbSessionDep) -> CreateApiKey:
+    """Build CreateApiKey with request-scoped repositories."""
+    return CreateApiKey(
+        SqlAlchemyApiKeyRepository(session),
+        SqlAlchemyOrganizationRepository(session),
+        Argon2ApiKeyHasher(),
+        SqlAlchemyAuditRepository(session),
+    )
+
+
+async def get_list_api_keys(session: DbSessionDep) -> ListApiKeysForOrganization:
+    """Build ListApiKeysForOrganization with request-scoped repositories."""
+    return ListApiKeysForOrganization(
+        SqlAlchemyApiKeyRepository(session),
+        SqlAlchemyOrganizationRepository(session),
+    )
+
+
+async def get_revoke_api_key(session: DbSessionDep) -> RevokeApiKey:
+    """Build RevokeApiKey with request-scoped repositories."""
+    return RevokeApiKey(SqlAlchemyApiKeyRepository(session), SqlAlchemyAuditRepository(session))
+
+
+async def get_rotate_api_key(session: DbSessionDep) -> RotateApiKey:
+    """Build RotateApiKey with request-scoped repositories."""
+    return RotateApiKey(
+        SqlAlchemyApiKeyRepository(session),
+        Argon2ApiKeyHasher(),
+        SqlAlchemyAuditRepository(session),
+    )
 
 
 async def get_create_response(request: Request, session: DbSessionDep) -> CreateResponse:

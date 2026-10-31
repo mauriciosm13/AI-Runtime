@@ -32,6 +32,11 @@ class FakeApiKeyRepository:
         self._by_id[api_key.id] = api_key
         return api_key
 
+    async def revoke_and_add(self, revoked: ApiKey, replacement: ApiKey) -> ApiKey:
+        self._by_id[revoked.id] = revoked
+        self._by_id[replacement.id] = replacement
+        return replacement
+
 
 def test_fake_repository_satisfies_api_key_repository_contract() -> None:
     """A structural fake is accepted as ApiKeyRepository."""

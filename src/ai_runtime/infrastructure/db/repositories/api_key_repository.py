@@ -87,3 +87,22 @@ class SqlAlchemyApiKeyRepository:
         await self._session.commit()
         await self._session.refresh(row)
         return _to_domain(row)
+
+    async def revoke_and_add(self, revoked: ApiKey, replacement: ApiKey) -> ApiKey:
+        """Revoke the existing row and insert the replacement, then commit once."""
+        row = await self._session.get(ApiKeyRow, revoked.id)
+        if row is None:
+            raise LookupError(f"api key not found for revoke_and_add: {revoked.id}")
+        row.organization_id = revoked.organization_id
+        row.name = revoked.name
+        row.prefix = revoked.prefix
+        row.secret_hash = revoked.secret_hash
+        row.status = revoked.status.value
+        row.created_at = revoked.created_at
+        row.revoked_at = revoked.revoked_at
+        row.updated_at = revoked.updated_at
+        replacement_row = _to_row(replacement)
+        self._session.add(replacement_row)
+        await self._session.commit()
+        await self._session.refresh(replacement_row)
+        return _to_domain(replacement_row)
