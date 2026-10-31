@@ -23,6 +23,8 @@ from ai_runtime.application.prompts.create_prompt_version import CreatePromptVer
 from ai_runtime.application.prompts.get_prompt_versions import GetPromptVersions
 from ai_runtime.application.prompts.resolve_prompt import ResolvePrompt
 from ai_runtime.application.rag.augment_messages_with_rag import AugmentMessagesWithRag
+from ai_runtime.application.semantic.ingest_semantic_chunk import IngestSemanticChunk
+from ai_runtime.application.semantic.index_semantic_chunk import IndexSemanticChunk
 from ai_runtime.application.semantic.search_semantic_chunks import SearchSemanticChunks
 from ai_runtime.application.resilience.provider_executor import ProviderExecutor
 from ai_runtime.application.responses.create_response import CreateResponse
@@ -319,9 +321,22 @@ async def get_augment_messages_with_rag(request: Request, session: DbSessionDep)
     )
 
 
+async def get_ingest_semantic_chunk(request: Request, session: DbSessionDep) -> IngestSemanticChunk:
+    """Build semantic chunk ingestion wired to embedding providers and persistence."""
+    settings: Settings = request.app.state.settings
+    http_client: httpx.AsyncClient = request.app.state.http_client
+    organizations = SqlAlchemyOrganizationRepository(session)
+    chunks = SqlAlchemySemanticRetrievalRepository(session)
+    return IngestSemanticChunk(
+        build_embedding_providers(settings, http_client),
+        IndexSemanticChunk(chunks, organizations),
+    )
+
+
 ResolvePromptDep = Annotated[ResolvePrompt, Depends(get_resolve_prompt)]
 BuildContextDep = Annotated[BuildContext, Depends(get_build_context)]
 AugmentMessagesWithRagDep = Annotated[AugmentMessagesWithRag, Depends(get_augment_messages_with_rag)]
+IngestSemanticChunkDep = Annotated[IngestSemanticChunk, Depends(get_ingest_semantic_chunk)]
 
 
 def require_request_id(request: Request) -> str:

@@ -10,6 +10,7 @@ from ai_runtime.api.routes.metrics import router as metrics_router
 from ai_runtime.api.routes.organizations import router as organizations_router
 from ai_runtime.api.routes.prompts import router as prompts_router
 from ai_runtime.api.routes.responses import router as responses_router
+from ai_runtime.api.routes.semantic_chunks import router as semantic_chunks_router
 from ai_runtime.config.settings import Settings
 from ai_runtime.telemetry.logging import configure_logging
 from ai_runtime.telemetry.metrics import InProcessMetrics
@@ -38,6 +39,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(metrics_router)
     app.include_router(responses_router, prefix="/v1")
     app.include_router(prompts_router, prefix="/v1")
+    app.include_router(semantic_chunks_router, prefix="/v1")
     app.include_router(organizations_router, prefix="/v1")
     app.include_router(api_keys_router, prefix="/v1")
     return app

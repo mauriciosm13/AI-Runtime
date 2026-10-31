@@ -67,9 +67,9 @@ Ports prevent use cases from depending on concrete adapters. They should be intr
 
 `ModelProvider` in `ports/model_provider.py` is an asynchronous contract with `generate` (one-shot `GenerationResponse`) and `stream` (async iterator of `GenerationDelta` then a terminal `GenerationResponse`). Concrete adapters under `providers/` implement this interface.
 
-`EmbeddingProvider` in `ports/embedding_provider.py` is an asynchronous contract with `embed` (one-shot `EmbeddingResponse`). `OpenAIEmbeddingProvider` in `providers/openai/embedding.py` implements it over HTTP; the static catalog lives in `domain/embedding_routing.py`. RAG on `POST /v1/responses` is the first HTTP surface that invokes embeddings.
+`EmbeddingProvider` in `ports/embedding_provider.py` is an asynchronous contract with `embed` (one-shot `EmbeddingResponse`). `OpenAIEmbeddingProvider` in `providers/openai/embedding.py` implements it over HTTP; the static catalog lives in `domain/embedding_routing.py`. RAG on `POST /v1/responses` and chunk ingestion on `POST /v1/semantic_chunks` invoke embeddings at the HTTP boundary.
 
-`SemanticRetrievalRepository` in `ports/semantic_retrieval_repository.py` defines async `add` and organization-scoped `search` over pgvector-backed chunks. `IndexSemanticChunk` and `SearchSemanticChunks` in `application/semantic/` coordinate indexing and cosine-distance retrieval. `SqlAlchemySemanticRetrievalRepository` implements the port; Alembic revision `0009_semantic_chunks_pgvector` enables the extension and creates `semantic_chunks`.
+`SemanticRetrievalRepository` in `ports/semantic_retrieval_repository.py` defines async `add` and organization-scoped `search` over pgvector-backed chunks. `IndexSemanticChunk`, `IngestSemanticChunk`, and `SearchSemanticChunks` in `application/semantic/` coordinate persistence, HTTP-driven embedding+indexing, and cosine-distance retrieval. `POST /v1/semantic_chunks` orchestrates `IngestSemanticChunk` for tenant API keys. `SqlAlchemySemanticRetrievalRepository` implements the port; Alembic revision `0009_semantic_chunks_pgvector` enables the extension and creates `semantic_chunks`.
 
 `OrganizationRepository` in `ports/organization_repository.py` defines async `add`, `get_by_id`, and `get_by_slug` for organization persistence. `SqlAlchemyOrganizationRepository` under `infrastructure/db/repositories/` implements it.
 

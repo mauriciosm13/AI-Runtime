@@ -59,12 +59,12 @@ Authenticated applications index text into `semantic_chunks` for their organizat
 
 ## Critérios de aceitação
 
-- [ ] `POST /v1/semantic_chunks` with tenant API key stores a chunk for that key’s `organization_id` only.
-- [ ] Subsequent `POST /v1/responses` with `rag.enabled: true` can retrieve ingested content for the same organization.
-- [ ] Chunk `content` does not appear in application logs for the ingest request path.
-- [ ] Invalid or unknown `embedding_model` → `400` / `unsupported_model`.
-- [ ] Unconfigured embedding provider → `503` / `provider_error` on ingest (same as RAG).
-- [ ] pytest, ruff, mypy CI green; OpenAPI reflects the new route.
+- [x] `POST /v1/semantic_chunks` with tenant API key stores a chunk for that key’s `organization_id` only.
+- [x] Subsequent `POST /v1/responses` with `rag.enabled: true` can retrieve ingested content for the same organization.
+- [x] Chunk `content` does not appear in application logs for the ingest request path.
+- [x] Invalid or unknown `embedding_model` → `400` / `unsupported_model`.
+- [x] Unconfigured embedding provider → `503` / `provider_error` on ingest (same as RAG).
+- [x] pytest, ruff, mypy CI green; OpenAPI reflects the new route.
 
 ## Referência (implementação existente)
 
