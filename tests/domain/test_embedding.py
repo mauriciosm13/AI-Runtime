@@ -1,13 +1,8 @@
 """Unit tests for provider-neutral embedding domain contracts."""
 
 import pytest
-from ai_runtime.domain.embedding import (
-    DomainValidationError,
-    EmbeddingRequest,
-    EmbeddingResponse,
-    EmbeddingUsage,
-    EmbeddingVector,
-)
+from ai_runtime.domain.embedding import EmbeddingRequest, EmbeddingResponse, EmbeddingUsage, EmbeddingVector
+from ai_runtime.domain.generation import DomainValidationError
 
 
 def test_valid_embedding_request_and_response() -> None:
