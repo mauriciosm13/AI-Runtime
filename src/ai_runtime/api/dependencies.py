@@ -22,6 +22,10 @@ from ai_runtime.application.policy.enforce_organization_policy import EnforceOrg
 from ai_runtime.application.prompts.create_prompt_version import CreatePromptVersion
 from ai_runtime.application.prompts.get_prompt_versions import GetPromptVersions
 from ai_runtime.application.prompts.resolve_prompt import ResolvePrompt
+from ai_runtime.application.mcp.list_mcp_server_tools import ListMcpServerTools
+from ai_runtime.application.mcp.list_mcp_servers import ListMcpServers
+from ai_runtime.application.mcp.register_mcp_server import RegisterMcpServer
+from ai_runtime.application.mcp.resolve_tools_for_generation import ResolveToolsForGeneration
 from ai_runtime.application.rag.augment_messages_with_rag import AugmentMessagesWithRag
 from ai_runtime.application.semantic.ingest_semantic_chunk import IngestSemanticChunk
 from ai_runtime.application.semantic.index_semantic_chunk import IndexSemanticChunk
@@ -38,7 +42,9 @@ from ai_runtime.infrastructure.db.repositories.organization_policy_repository im
 from ai_runtime.infrastructure.db.repositories.prompt_repository import SqlAlchemyPromptRepository
 from ai_runtime.infrastructure.db.repositories.organization_repository import SqlAlchemyOrganizationRepository
 from ai_runtime.infrastructure.db.repositories.audit_repository import SqlAlchemyAuditRepository
+from ai_runtime.infrastructure.db.repositories.mcp_server_repository import SqlAlchemyMcpServerRepository
 from ai_runtime.infrastructure.db.repositories.semantic_retrieval_repository import SqlAlchemySemanticRetrievalRepository
+from ai_runtime.infrastructure.mcp.http_mcp_client import HttpMcpToolClient
 from ai_runtime.infrastructure.db.repositories.usage_repository import SqlAlchemyUsageRepository
 from ai_runtime.infrastructure.pricing import StaticCostEstimator
 from ai_runtime.infrastructure.redis import RedisIdempotencyStore, RedisRateLimiter, RedisResponseCache, create_redis_client
@@ -321,6 +327,36 @@ async def get_augment_messages_with_rag(request: Request, session: DbSessionDep)
     )
 
 
+def build_mcp_tool_client(settings: Settings, http_client: httpx.AsyncClient) -> HttpMcpToolClient:
+    """Build the HTTP MCP tool discovery client."""
+    return HttpMcpToolClient(http_client, timeout_seconds=settings.mcp_timeout_seconds)
+
+
+async def get_register_mcp_server(session: DbSessionDep) -> RegisterMcpServer:
+    """Build RegisterMcpServer with a request-scoped repository."""
+    return RegisterMcpServer(SqlAlchemyMcpServerRepository(session))
+
+
+async def get_list_mcp_servers(session: DbSessionDep) -> ListMcpServers:
+    """Build ListMcpServers with a request-scoped repository."""
+    return ListMcpServers(SqlAlchemyMcpServerRepository(session))
+
+
+async def get_list_mcp_server_tools(request: Request, session: DbSessionDep) -> ListMcpServerTools:
+    """Build ListMcpServerTools wired to MCP HTTP discovery."""
+    settings: Settings = request.app.state.settings
+    http_client: httpx.AsyncClient = request.app.state.http_client
+    return ListMcpServerTools(SqlAlchemyMcpServerRepository(session), build_mcp_tool_client(settings, http_client))
+
+
+async def get_resolve_tools_for_generation(request: Request, session: DbSessionDep) -> ResolveToolsForGeneration:
+    """Build ResolveToolsForGeneration for POST /v1/responses."""
+    settings: Settings = request.app.state.settings
+    http_client: httpx.AsyncClient = request.app.state.http_client
+    repository = SqlAlchemyMcpServerRepository(session)
+    return ResolveToolsForGeneration(repository, build_mcp_tool_client(settings, http_client))
+
+
 async def get_ingest_semantic_chunk(request: Request, session: DbSessionDep) -> IngestSemanticChunk:
     """Build semantic chunk ingestion wired to embedding providers and persistence."""
     settings: Settings = request.app.state.settings
@@ -337,6 +373,7 @@ ResolvePromptDep = Annotated[ResolvePrompt, Depends(get_resolve_prompt)]
 BuildContextDep = Annotated[BuildContext, Depends(get_build_context)]
 AugmentMessagesWithRagDep = Annotated[AugmentMessagesWithRag, Depends(get_augment_messages_with_rag)]
 IngestSemanticChunkDep = Annotated[IngestSemanticChunk, Depends(get_ingest_semantic_chunk)]
+ResolveToolsForGenerationDep = Annotated[ResolveToolsForGeneration, Depends(get_resolve_tools_for_generation)]
 
 
 def require_request_id(request: Request) -> str:

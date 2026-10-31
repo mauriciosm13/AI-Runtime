@@ -23,7 +23,7 @@ def test_migration_revision_chain() -> None:
     """Alembic revisions form a single linear chain ending at audit_events."""
     config = Config(str(_REPO_ROOT / "alembic.ini"))
     script = ScriptDirectory.from_config(config)
-    assert script.get_heads() == ["0009_semantic_chunks_pgvector"]
+    assert script.get_heads() == ["0010_mcp_servers"]
     baseline = script.get_revision("0001_baseline")
     assert baseline is not None
     assert baseline.down_revision is None
@@ -48,6 +48,9 @@ def test_migration_revision_chain() -> None:
     semantic_chunks = script.get_revision("0009_semantic_chunks_pgvector")
     assert semantic_chunks is not None
     assert semantic_chunks.down_revision == "0008_audit_events"
+    mcp_servers = script.get_revision("0010_mcp_servers")
+    assert mcp_servers is not None
+    assert mcp_servers.down_revision == "0009_semantic_chunks_pgvector"
 
 
 def test_get_alembic_database_url_uses_settings(monkeypatch: MonkeyPatch) -> None:

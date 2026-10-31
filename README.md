@@ -305,9 +305,9 @@ While the stack is running, the same endpoints documented above are available at
 
 Delivered in this repository: provider-neutral generation, OpenAI / Anthropic / Gemini adapters, routing, retries and failover, API-key auth, organizations, usage and cost, Redis rate limit, idempotency and response cache, streaming, tool calling, prompts and context, metrics, tracing and audit, the AWS stack (network, ECR, ECS, RDS, ElastiCache, Secrets Manager, CloudWatch), and the Python SDK in `sdk/python`.
 
-Still open: MCP tools and example LangChain and multi-agent clients. JWT is not part of the current auth design. pgvector Terraform wiring remains a gap.
+Still open: MCP `tools/call` execution (PR2), example LangChain and multi-agent clients. JWT is not part of the current auth design. pgvector Terraform wiring remains a gap.
 
-Delivered for learning slice: OpenAI embedding adapter, organization-scoped pgvector retrieval, opt-in RAG on `POST /v1/responses`, and tenant HTTP ingestion on `POST /v1/semantic_chunks`.
+Delivered for learning slice: OpenAI embedding adapter, organization-scoped pgvector retrieval, opt-in RAG on `POST /v1/responses`, tenant HTTP ingestion on `POST /v1/semantic_chunks`, and MCP server registration plus tool discovery on `POST /v1/responses`.
 
 ## Contributing
 

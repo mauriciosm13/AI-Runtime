@@ -15,6 +15,8 @@ class ErrorCode(StrEnum):
     UNSUPPORTED_MODEL = "unsupported_model"
     CONFLICT = "conflict"
     PROMPT_NOT_FOUND = "prompt_not_found"
+    MCP_SERVER_NOT_FOUND = "mcp_server_not_found"
+    MCP_ERROR = "mcp_error"
     ORGANIZATION_NOT_FOUND = "organization_not_found"
     API_KEY_NOT_FOUND = "api_key_not_found"
     CONTEXT_LENGTH_EXCEEDED = "context_length_exceeded"

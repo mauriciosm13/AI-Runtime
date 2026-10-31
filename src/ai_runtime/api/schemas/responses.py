@@ -117,6 +117,14 @@ class PromptReferenceSchema(BaseModel):
         return PromptReference(name=self.name, variables=self.variables, version=self.version)
 
 
+class McpSchema(BaseModel):
+    """Reference registered MCP servers whose tools should be exposed to the model."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    servers: list[str] = Field(min_length=1)
+
+
 class RagSchema(BaseModel):
     """Optional retrieval-augmented generation controls."""
 
@@ -168,6 +176,7 @@ class CreateResponseRequest(BaseModel):
     tools: list[ToolDefinitionSchema] = Field(default_factory=list)
     cache: bool = False
     rag: RagSchema | None = None
+    mcp: McpSchema | None = None
 
     @model_validator(mode="after")
     def validate_messages_xor_prompt(self) -> "CreateResponseRequest":
@@ -182,24 +191,34 @@ class CreateResponseRequest(BaseModel):
         return self.rag is not None and self.rag.enabled
 
     @property
-    def needs_context_check(self) -> bool:
-        """Whether the context builder must run (prompt, context, or RAG was supplied)."""
-        return self.prompt is not None or self.context is not None or self.rag_enabled
+    def mcp_enabled(self) -> bool:
+        """Whether MCP tool discovery must run before generation."""
+        return self.mcp is not None and bool(self.mcp.servers)
 
-    def to_domain(self, messages: tuple[Message, ...] | None = None) -> GenerationRequest:
+    @property
+    def needs_context_check(self) -> bool:
+        """Whether the context builder must run (prompt, context, RAG, MCP, or inline tools)."""
+        return self.prompt is not None or self.context is not None or self.rag_enabled or self.mcp_enabled or bool(self.tools)
+
+    def to_domain(
+        self,
+        messages: tuple[Message, ...] | None = None,
+        tools: tuple[ToolDefinition, ...] | None = None,
+    ) -> GenerationRequest:
         """Map this API payload to a domain GenerationRequest.
 
         ``messages`` carries the resolved/budgeted messages; when omitted the
         request's own ``messages`` are used.
         """
         resolved = messages if messages is not None else tuple(message.to_domain() for message in self.messages or [])
+        resolved_tools = tools if tools is not None else tuple(tool.to_domain() for tool in self.tools)
         return GenerationRequest(
             model=self.model,
             messages=resolved,
             temperature=self.temperature,
             max_output_tokens=self.max_output_tokens,
             stream=self.stream,
-            tools=tuple(tool.to_domain() for tool in self.tools),
+            tools=resolved_tools,
             cache=self.cache,
         )
 

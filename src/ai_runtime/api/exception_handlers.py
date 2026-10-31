@@ -13,6 +13,7 @@ from ai_runtime.domain.generation import DomainValidationError
 from ai_runtime.domain.idempotency import IdempotencyConflictError
 from ai_runtime.domain.organization import OrganizationNotFoundError, OrganizationSlugConflictError
 from ai_runtime.domain.organization_policy import ModelNotAvailableError, QuotaExceededError
+from ai_runtime.domain.mcp import McpError, McpServerNameConflictError, McpServerNotFoundError
 from ai_runtime.domain.prompt import PromptNotFoundError, PromptVersionConflictError
 from ai_runtime.domain.rate_limit import RateLimitExceededError
 from ai_runtime.domain.routing import UnsupportedModelError
@@ -187,6 +188,39 @@ async def api_key_already_revoked_handler(request: Request, err: Exception) -> J
     )
 
 
+async def mcp_server_not_found_handler(request: Request, err: Exception) -> JSONResponse:
+    """Normalize missing MCP servers to HTTP 404."""
+    assert isinstance(err, McpServerNotFoundError)
+    return _error_response(
+        status_code=404,
+        code=ErrorCode.MCP_SERVER_NOT_FOUND,
+        message=str(err),
+        request_id=get_request_id(request),
+    )
+
+
+async def mcp_server_name_conflict_handler(request: Request, err: Exception) -> JSONResponse:
+    """Normalize duplicate MCP server names to HTTP 409."""
+    assert isinstance(err, McpServerNameConflictError)
+    return _error_response(
+        status_code=409,
+        code=ErrorCode.CONFLICT,
+        message=str(err),
+        request_id=get_request_id(request),
+    )
+
+
+async def mcp_error_handler(request: Request, err: Exception) -> JSONResponse:
+    """Normalize MCP transport and protocol failures."""
+    assert isinstance(err, McpError)
+    return _error_response(
+        status_code=502,
+        code=ErrorCode.MCP_ERROR,
+        message=str(err),
+        request_id=get_request_id(request),
+    )
+
+
 async def prompt_not_found_handler(request: Request, err: Exception) -> JSONResponse:
     """Normalize missing prompt templates to HTTP 404."""
     assert isinstance(err, PromptNotFoundError)
@@ -265,6 +299,9 @@ def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(OrganizationSlugConflictError, organization_slug_conflict_handler)
     app.add_exception_handler(ApiKeyNotFoundError, api_key_not_found_handler)
     app.add_exception_handler(ApiKeyAlreadyRevokedError, api_key_already_revoked_handler)
+    app.add_exception_handler(McpServerNotFoundError, mcp_server_not_found_handler)
+    app.add_exception_handler(McpServerNameConflictError, mcp_server_name_conflict_handler)
+    app.add_exception_handler(McpError, mcp_error_handler)
     app.add_exception_handler(PromptNotFoundError, prompt_not_found_handler)
     app.add_exception_handler(PromptVersionConflictError, prompt_version_conflict_handler)
     app.add_exception_handler(ContextLimitExceededError, context_limit_exceeded_handler)

@@ -8,7 +8,7 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 from ai_runtime.infrastructure.db.base import Base
 from ai_runtime.infrastructure.db.migration_settings import get_alembic_database_url
-from ai_runtime.infrastructure.db.models import ApiKeyRow, AuditEventRow, OrganizationRow, SemanticChunkRow, UsageRecordRow
+from ai_runtime.infrastructure.db.models import ApiKeyRow, AuditEventRow, McpServerRow, OrganizationRow, SemanticChunkRow, UsageRecordRow
 
 config = context.config
 
@@ -27,6 +27,8 @@ if AuditEventRow.__tablename__ not in target_metadata.tables:
     raise RuntimeError("audit_events ORM model is not registered on Base.metadata")
 if SemanticChunkRow.__tablename__ not in target_metadata.tables:
     raise RuntimeError("semantic_chunks ORM model is not registered on Base.metadata")
+if McpServerRow.__tablename__ not in target_metadata.tables:
+    raise RuntimeError("mcp_servers ORM model is not registered on Base.metadata")
 
 
 def run_migrations_offline() -> None:

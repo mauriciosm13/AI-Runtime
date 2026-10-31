@@ -47,6 +47,7 @@ class Settings(BaseSettings):
     provider_retry_base_delay_seconds: float = 0.25
     provider_failover_enabled: bool = True
     operator_token: str = ""
+    mcp_timeout_seconds: float = 10.0
 
     @field_validator("database_url")
     @classmethod
@@ -84,7 +85,7 @@ class Settings(BaseSettings):
             raise ValueError(msg)
         return value
 
-    @field_validator("provider_retry_base_delay_seconds")
+    @field_validator("provider_retry_base_delay_seconds", "mcp_timeout_seconds")
     @classmethod
     def validate_non_negative_float(cls, value: float) -> float:
         """Require a non-negative retry backoff delay."""
