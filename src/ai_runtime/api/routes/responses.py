@@ -6,7 +6,14 @@ from collections.abc import AsyncIterator
 from typing import Annotated, Any
 from fastapi import APIRouter, Header
 from fastapi.responses import StreamingResponse
-from ai_runtime.api.dependencies import AuthenticatedPrincipalDep, BuildContextDep, CreateResponseDep, RequestIdDep, ResolvePromptDep
+from ai_runtime.api.dependencies import (
+    AugmentMessagesWithRagDep,
+    AuthenticatedPrincipalDep,
+    BuildContextDep,
+    CreateResponseDep,
+    RequestIdDep,
+    ResolvePromptDep,
+)
 from ai_runtime.api.errors import APIError, ErrorCode
 from ai_runtime.api.schemas.errors import ErrorResponseSchema
 from ai_runtime.api.schemas.responses import CreateResponseRequest, ResponseSchema
@@ -83,6 +90,7 @@ def _format_stream_error(err: ProviderError, request_id: str) -> str:
         422: {"model": ErrorResponseSchema, "description": "Invalid request or context budget exceeded"},
         429: {"model": ErrorResponseSchema, "description": "Organization rate limit exceeded"},
         502: {"model": ErrorResponseSchema, "description": "Provider failure"},
+        503: {"model": ErrorResponseSchema, "description": "Embedding provider not configured"},
     },
 )
 async def post_responses(
@@ -91,6 +99,7 @@ async def post_responses(
     principal: AuthenticatedPrincipalDep,
     request_id: RequestIdDep,
     resolve_prompt: ResolvePromptDep,
+    augment_messages_with_rag: AugmentMessagesWithRagDep,
     build_context: BuildContextDep,
     idempotency_key_header: Annotated[str | None, Header(alias=_IDEMPOTENCY_KEY_HEADER)] = None,
 ) -> ResponseSchema | StreamingResponse:
@@ -98,6 +107,14 @@ async def post_responses(
     messages: tuple[Message, ...] | None = None
     if body.prompt is not None:
         messages = await resolve_prompt.execute(principal.organization_id, body.prompt.to_domain())
+    if body.rag_enabled:
+        assert body.rag is not None
+        current = messages if messages is not None else tuple(item.to_domain() for item in body.messages or [])
+        messages = await augment_messages_with_rag.execute(
+            principal.organization_id,
+            current,
+            body.rag.to_domain(),
+        )
     if body.needs_context_check:
         current = messages if messages is not None else tuple(item.to_domain() for item in body.messages or [])
         messages = build_context.execute(

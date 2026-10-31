@@ -22,6 +22,8 @@ from ai_runtime.application.policy.enforce_organization_policy import EnforceOrg
 from ai_runtime.application.prompts.create_prompt_version import CreatePromptVersion
 from ai_runtime.application.prompts.get_prompt_versions import GetPromptVersions
 from ai_runtime.application.prompts.resolve_prompt import ResolvePrompt
+from ai_runtime.application.rag.augment_messages_with_rag import AugmentMessagesWithRag
+from ai_runtime.application.semantic.search_semantic_chunks import SearchSemanticChunks
 from ai_runtime.application.resilience.provider_executor import ProviderExecutor
 from ai_runtime.application.responses.create_response import CreateResponse
 from ai_runtime.application.routing.model_router import ModelRouter
@@ -34,15 +36,18 @@ from ai_runtime.infrastructure.db.repositories.organization_policy_repository im
 from ai_runtime.infrastructure.db.repositories.prompt_repository import SqlAlchemyPromptRepository
 from ai_runtime.infrastructure.db.repositories.organization_repository import SqlAlchemyOrganizationRepository
 from ai_runtime.infrastructure.db.repositories.audit_repository import SqlAlchemyAuditRepository
+from ai_runtime.infrastructure.db.repositories.semantic_retrieval_repository import SqlAlchemySemanticRetrievalRepository
 from ai_runtime.infrastructure.db.repositories.usage_repository import SqlAlchemyUsageRepository
 from ai_runtime.infrastructure.pricing import StaticCostEstimator
 from ai_runtime.infrastructure.redis import RedisIdempotencyStore, RedisRateLimiter, RedisResponseCache, create_redis_client
 from ai_runtime.infrastructure.tokens import HeuristicTokenCounter
 from ai_runtime.infrastructure.security.api_key_crypto import Argon2ApiKeyHasher
+from ai_runtime.ports.embedding_provider import EmbeddingProvider
 from ai_runtime.ports.model_provider import ModelProvider
 from ai_runtime.providers.anthropic.adapter import AnthropicModelProvider
 from ai_runtime.providers.gemini.adapter import GeminiModelProvider
 from ai_runtime.providers.openai.adapter import OpenAIModelProvider
+from ai_runtime.providers.openai.embedding import OpenAIEmbeddingProvider
 
 _UNAUTHORIZED_MESSAGE = "Invalid or missing API key."
 _FORBIDDEN_SUSPENDED_MESSAGE = "Organization is suspended."
@@ -76,6 +81,18 @@ def build_model_providers(settings: Settings, http_client: httpx.AsyncClient) ->
             api_key=settings.gemini_api_key,
             http_client=http_client,
             base_url=settings.gemini_base_url,
+        )
+    return providers
+
+
+def build_embedding_providers(settings: Settings, http_client: httpx.AsyncClient) -> Mapping[str, EmbeddingProvider]:
+    """Register embedding adapters present in this deployment."""
+    providers: dict[str, EmbeddingProvider] = {}
+    if settings.openai_api_key.strip():
+        providers["openai"] = OpenAIEmbeddingProvider(
+            api_key=settings.openai_api_key,
+            http_client=http_client,
+            base_url=settings.openai_base_url,
         )
     return providers
 
@@ -291,8 +308,20 @@ async def get_build_context(request: Request) -> BuildContext:
     return BuildContext(HeuristicTokenCounter(), failover_enabled=settings.provider_failover_enabled)
 
 
+async def get_augment_messages_with_rag(request: Request, session: DbSessionDep) -> AugmentMessagesWithRag:
+    """Build RAG augmentation wired to embedding providers and semantic search."""
+    settings: Settings = request.app.state.settings
+    http_client: httpx.AsyncClient = request.app.state.http_client
+    chunks = SqlAlchemySemanticRetrievalRepository(session)
+    return AugmentMessagesWithRag(
+        build_embedding_providers(settings, http_client),
+        SearchSemanticChunks(chunks),
+    )
+
+
 ResolvePromptDep = Annotated[ResolvePrompt, Depends(get_resolve_prompt)]
 BuildContextDep = Annotated[BuildContext, Depends(get_build_context)]
+AugmentMessagesWithRagDep = Annotated[AugmentMessagesWithRag, Depends(get_augment_messages_with_rag)]
 
 
 def require_request_id(request: Request) -> str:
