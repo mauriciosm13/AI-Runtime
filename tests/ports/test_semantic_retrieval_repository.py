@@ -16,7 +16,14 @@ class FakeSemanticRetrievalRepository:
     async def add(self, chunk: SemanticChunk) -> SemanticChunk:
         return chunk
 
-    async def search(self, organization_id, query_embedding, *, limit: int):
+    async def search(
+        self,
+        organization_id: UUID,
+        query_embedding: tuple[float, ...],
+        *,
+        limit: int,
+    ) -> Sequence[SemanticSearchResult]:
+        _ = (organization_id, query_embedding, limit)
         return [
             SemanticSearchResult(chunk_id=uuid4(), content="hit", distance=0.0),
         ]
