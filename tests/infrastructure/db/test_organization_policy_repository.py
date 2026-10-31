@@ -16,6 +16,7 @@ from ai_runtime.infrastructure.db.base import Base
 from ai_runtime.infrastructure.db.engine import create_db_engine, create_session_factory
 from ai_runtime.infrastructure.db.models import OrganizationModelEntitlementRow, OrganizationPolicyRow, OrganizationRow
 from ai_runtime.infrastructure.db.repositories.organization_policy_repository import SqlAlchemyOrganizationPolicyRepository
+from tests.infrastructure.db.schema import recreate_schema
 from ai_runtime.infrastructure.db.repositories.organization_repository import SqlAlchemyOrganizationRepository
 
 _TEST_DATABASE_URL = "postgresql+asyncpg://ai_runtime:ai_runtime@localhost:5432/ai_runtime"
@@ -46,8 +47,7 @@ async def _with_clean_schema(scenario: _Scenario) -> None:
     engine = create_db_engine(_TEST_DATABASE_URL)
     try:
         async with engine.begin() as connection:
-            await connection.run_sync(Base.metadata.drop_all)
-            await connection.run_sync(Base.metadata.create_all)
+            await recreate_schema(connection)
         await scenario(create_session_factory(engine))
     finally:
         async with engine.begin() as connection:

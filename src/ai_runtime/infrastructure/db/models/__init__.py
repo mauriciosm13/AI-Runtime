@@ -5,6 +5,7 @@ from ai_runtime.infrastructure.db.models.audit_event import AuditEventRow
 from ai_runtime.infrastructure.db.models.organization import OrganizationRow
 from ai_runtime.infrastructure.db.models.organization_policy import OrganizationModelEntitlementRow, OrganizationPolicyRow
 from ai_runtime.infrastructure.db.models.prompt_template import PromptTemplateRow
+from ai_runtime.infrastructure.db.models.semantic_chunk import SemanticChunkRow
 from ai_runtime.infrastructure.db.models.usage_record import UsageRecordRow
 
 __all__ = [
@@ -14,5 +15,6 @@ __all__ = [
     "OrganizationPolicyRow",
     "OrganizationRow",
     "PromptTemplateRow",
+    "SemanticChunkRow",
     "UsageRecordRow",
 ]
