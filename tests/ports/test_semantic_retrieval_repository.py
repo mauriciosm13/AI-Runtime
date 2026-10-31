@@ -1,8 +1,9 @@
 """Unit tests for the SemanticRetrievalRepository port contract."""
 
 import asyncio
+from collections.abc import Sequence
 from datetime import UTC, datetime
-from uuid import uuid4
+from uuid import UUID, uuid4
 from ai_runtime.domain.semantic_retrieval import DEFAULT_EMBEDDING_DIMENSIONS, SemanticChunk, SemanticSearchResult
 from ai_runtime.ports.semantic_retrieval_repository import SemanticRetrievalRepository
 
