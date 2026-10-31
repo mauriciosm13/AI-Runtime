@@ -57,7 +57,7 @@ The domain layer contains provider-agnostic business concepts and rules: model c
 
 A domain rule belongs here when it would still apply if FastAPI, PostgreSQL, Redis, and every provider were replaced.
 
-Domain contracts under `domain/` include provider-neutral text generation (`MessageRole`, `Message`, `GenerationRequest`, `TokenUsage`, `GenerationResponse`), model routing (`ModelRoute`, `DEFAULT_MODEL_CATALOG`, `resolve_model_route`, `UnsupportedModelError`), organization tenancy (`Organization`, `OrganizationStatus`, slug/name invariants, and organization lifecycle errors), API-key credentials (`ApiKey`, `ApiKeyMetadata`, `ApiKeyStatus`, revoke invariants, and key lifecycle errors), and usage accounting (`UsageRecord`, `ModelPricing`, `estimate_cost_usd`). These types do not know about HTTP, SDKs, or SQLAlchemy. Plaintext API-key secrets are never part of the persisted domain entity.
+Domain contracts under `domain/` include provider-neutral text generation (`MessageRole`, `Message`, `GenerationRequest`, `TokenUsage`, `GenerationResponse`), provider-neutral embeddings (`EmbeddingRequest`, `EmbeddingVector`, `EmbeddingUsage`, `EmbeddingResponse`), model routing (`ModelRoute`, `DEFAULT_MODEL_CATALOG`, `resolve_model_route`, `UnsupportedModelError`), organization tenancy (`Organization`, `OrganizationStatus`, slug/name invariants, and organization lifecycle errors), API-key credentials (`ApiKey`, `ApiKeyMetadata`, `ApiKeyStatus`, revoke invariants, and key lifecycle errors), and usage accounting (`UsageRecord`, `ModelPricing`, `estimate_cost_usd`). These types do not know about HTTP, SDKs, or SQLAlchemy. Plaintext API-key secrets are never part of the persisted domain entity.
 
 ### Ports
 
@@ -66,6 +66,8 @@ Ports are stable interfaces required by application use cases. They describe cap
 Ports prevent use cases from depending on concrete adapters. They should be introduced only where a real external boundary or test seam exists.
 
 `ModelProvider` in `ports/model_provider.py` is an asynchronous contract with `generate` (one-shot `GenerationResponse`) and `stream` (async iterator of `GenerationDelta` then a terminal `GenerationResponse`). Concrete adapters under `providers/` implement this interface.
+
+`EmbeddingProvider` in `ports/embedding_provider.py` is an asynchronous contract with `embed` (one-shot `EmbeddingResponse`). Provider adapters for embeddings are planned; HTTP routes and persistence are not part of the initial embedding contract slice.
 
 `OrganizationRepository` in `ports/organization_repository.py` defines async `add`, `get_by_id`, and `get_by_slug` for organization persistence. `SqlAlchemyOrganizationRepository` under `infrastructure/db/repositories/` implements it.
 
