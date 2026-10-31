@@ -4,7 +4,7 @@ from fastapi import APIRouter
 from ai_runtime.api.dependencies import AuthenticatedPrincipalDep, IngestSemanticChunkDep
 from ai_runtime.api.schemas.errors import ErrorResponseSchema
 from ai_runtime.api.schemas.semantic_chunks import CreateSemanticChunkRequest, SemanticChunkCreatedSchema
-from ai_runtime.application.semantic.ingest_semantic_chunk import IngestSemanticChunk, IngestSemanticChunkCommand
+from ai_runtime.application.semantic.ingest_semantic_chunk import IngestSemanticChunkCommand
 
 router = APIRouter(tags=["semantic_chunks"])
 
