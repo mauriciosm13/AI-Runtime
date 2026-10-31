@@ -2,7 +2,7 @@
 
 ## Decision summary
 
-AI Runtime uses PostgreSQL as its system of record and Redis for ephemeral, latency-sensitive coordination. The `pgvector` extension stores organization-scoped semantic chunks (`semantic_chunks`, Alembic `0009_semantic_chunks_pgvector`) for nearest-neighbor retrieval; HTTP ingestion and RAG injection remain later roadmap items.
+AI Runtime uses PostgreSQL as its system of record and Redis for ephemeral, latency-sensitive coordination. The `pgvector` extension stores organization-scoped semantic chunks (`semantic_chunks`, Alembic `0009_semantic_chunks_pgvector`) for nearest-neighbor retrieval; opt-in RAG on `POST /v1/responses` reads these chunks at request time without persisting query or injected text. HTTP chunk ingestion remains a later roadmap item.
 
 ## PostgreSQL: system of record
 

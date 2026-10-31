@@ -3,7 +3,9 @@
 from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, model_serializer, model_validator
 from ai_runtime.domain.context import ContextPolicy
+from ai_runtime.domain.embedding_routing import DEFAULT_RAG_EMBEDDING_MODEL
 from ai_runtime.domain.generation import DomainValidationError, GenerationRequest, GenerationResponse
+from ai_runtime.domain.rag import MAX_RAG_TOP_K, RagPolicy
 from ai_runtime.domain.generation import Message, MessageRole, TokenUsage, ToolCall, ToolDefinition
 from ai_runtime.domain.prompt import PromptReference
 
@@ -115,6 +117,26 @@ class PromptReferenceSchema(BaseModel):
         return PromptReference(name=self.name, variables=self.variables, version=self.version)
 
 
+class RagSchema(BaseModel):
+    """Optional retrieval-augmented generation controls."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    query: str | None = Field(default=None, min_length=1)
+    top_k: int = Field(default=5, ge=1, le=MAX_RAG_TOP_K)
+    embedding_model: str = Field(default=DEFAULT_RAG_EMBEDDING_MODEL, min_length=1)
+
+    def to_domain(self) -> RagPolicy:
+        """Map this API payload to a domain RagPolicy."""
+        return RagPolicy(
+            enabled=self.enabled,
+            query=self.query,
+            top_k=self.top_k,
+            embedding_model=self.embedding_model,
+        )
+
+
 class ContextSchema(BaseModel):
     """Optional context budget controls."""
 
@@ -145,6 +167,7 @@ class CreateResponseRequest(BaseModel):
     stream: bool = False
     tools: list[ToolDefinitionSchema] = Field(default_factory=list)
     cache: bool = False
+    rag: RagSchema | None = None
 
     @model_validator(mode="after")
     def validate_messages_xor_prompt(self) -> "CreateResponseRequest":
@@ -154,9 +177,14 @@ class CreateResponseRequest(BaseModel):
         return self
 
     @property
+    def rag_enabled(self) -> bool:
+        """Whether organization-scoped retrieval must run before generation."""
+        return self.rag is not None and self.rag.enabled
+
+    @property
     def needs_context_check(self) -> bool:
-        """Whether the context builder must run (a prompt or an explicit context was supplied)."""
-        return self.prompt is not None or self.context is not None
+        """Whether the context builder must run (prompt, context, or RAG was supplied)."""
+        return self.prompt is not None or self.context is not None or self.rag_enabled
 
     def to_domain(self, messages: tuple[Message, ...] | None = None) -> GenerationRequest:
         """Map this API payload to a domain GenerationRequest.

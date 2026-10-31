@@ -10,8 +10,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from ai_runtime.api.app import create_app
-from ai_runtime.api.dependencies import get_authenticated_principal, get_create_prompt_version, get_create_response
-from ai_runtime.api.dependencies import get_prompt_versions, get_resolve_prompt
+from ai_runtime.api.dependencies import get_augment_messages_with_rag, get_authenticated_principal, get_create_prompt_version
+from ai_runtime.api.dependencies import get_create_response, get_prompt_versions, get_resolve_prompt
 from ai_runtime.application.prompts.create_prompt_version import CreatePromptVersion
 from ai_runtime.application.prompts.get_prompt_versions import GetPromptVersions
 from ai_runtime.api.middleware.request_context import REQUEST_ID_HEADER
@@ -27,6 +27,7 @@ from ai_runtime.ports.idempotency_store import IdempotencyCompleted, Idempotency
 from ai_runtime.ports.rate_limiter import RateLimitDecision
 from ai_runtime.providers.openai.errors import ProviderError
 from tests.application.prompts.fakes import FakePromptRepository, override_resolve_prompt
+from tests.application.rag.fakes import override_augment_messages_with_rag
 from tests.application.policy.test_enforce_organization_policy import FakeOrganizationPolicyRepository
 from tests.application.responses.test_create_response import FakeAuditRepository, FakeCostEstimator, FakeIdempotencyStore
 from tests.application.responses.test_create_response import FakeMetrics, FakeRateLimiter, FakeResponseCache, FakeUsageRepository
@@ -144,6 +145,7 @@ def _client_with_provider(
     app.dependency_overrides[get_create_prompt_version] = override_create_prompt_version
     app.dependency_overrides[get_prompt_versions] = override_prompt_versions
     app.dependency_overrides[get_authenticated_principal] = override_principal
+    app.dependency_overrides[get_augment_messages_with_rag] = override_augment_messages_with_rag()
     return TestClient(app)
 
 
@@ -200,6 +202,7 @@ def test_post_responses_records_usage_with_request_id() -> None:
     app.dependency_overrides[get_create_response] = override_create_response
     app.dependency_overrides[get_resolve_prompt] = override_resolve_prompt(FakePromptRepository())
     app.dependency_overrides[get_authenticated_principal] = override_principal
+    app.dependency_overrides[get_augment_messages_with_rag] = override_augment_messages_with_rag()
     client = TestClient(app)
     response = client.post(
         "/v1/responses",
