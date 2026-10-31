@@ -18,6 +18,7 @@ from ai_runtime.infrastructure.db.models import ApiKeyRow, OrganizationRow, Usag
 from ai_runtime.infrastructure.db.repositories.api_key_repository import SqlAlchemyApiKeyRepository
 from ai_runtime.infrastructure.db.repositories.organization_repository import SqlAlchemyOrganizationRepository
 from ai_runtime.infrastructure.db.repositories.usage_repository import SqlAlchemyUsageRepository
+from tests.infrastructure.db.schema import recreate_schema
 from ai_runtime.infrastructure.security.api_key_crypto import Argon2ApiKeyHasher
 
 _TEST_DATABASE_URL = "postgresql+asyncpg://ai_runtime:ai_runtime@localhost:5432/ai_runtime"
@@ -49,8 +50,7 @@ async def _with_clean_schema(scenario: _Scenario) -> None:
     engine = create_db_engine(_TEST_DATABASE_URL)
     try:
         async with engine.begin() as connection:
-            await connection.run_sync(Base.metadata.drop_all)
-            await connection.run_sync(Base.metadata.create_all)
+            await recreate_schema(connection)
         await scenario(create_session_factory(engine))
     finally:
         async with engine.begin() as connection:
