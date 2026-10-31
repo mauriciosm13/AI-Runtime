@@ -198,13 +198,7 @@ class CreateResponseRequest(BaseModel):
     @property
     def needs_context_check(self) -> bool:
         """Whether the context builder must run (prompt, context, RAG, MCP, or inline tools)."""
-        return (
-            self.prompt is not None
-            or self.context is not None
-            or self.rag_enabled
-            or self.mcp_enabled
-            or bool(self.tools)
-        )
+        return self.prompt is not None or self.context is not None or self.rag_enabled or self.mcp_enabled or bool(self.tools)
 
     def to_domain(
         self,

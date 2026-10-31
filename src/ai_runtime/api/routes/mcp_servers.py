@@ -65,6 +65,4 @@ async def get_mcp_server_tools(
 ) -> McpToolListSchema:
     """Discover tools from a registered MCP server."""
     tools = await use_case.execute(principal.organization_id, name)
-    return McpToolListSchema(
-        tools=[{"name": tool.name, "description": tool.description, "parameters": tool.parameters} for tool in tools]
-    )
+    return McpToolListSchema(tools=[{"name": tool.name, "description": tool.description, "parameters": tool.parameters} for tool in tools])

@@ -57,6 +57,7 @@ def _client_with_mcp(
 
     app.dependency_overrides[get_create_response] = override_create_response
     app.dependency_overrides[get_authenticated_principal] = override_principal
+
     async def override_resolve_tools() -> PassthroughResolveTools:
         return resolver
 
