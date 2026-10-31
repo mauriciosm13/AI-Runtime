@@ -2,7 +2,7 @@
 
 ## Decision summary
 
-AI Runtime uses PostgreSQL as its system of record and Redis for ephemeral, latency-sensitive coordination. pgvector remains a future PostgreSQL extension, introduced only when semantic retrieval becomes an implemented product capability.
+AI Runtime uses PostgreSQL as its system of record and Redis for ephemeral, latency-sensitive coordination. The `pgvector` extension stores organization-scoped semantic chunks (`semantic_chunks`, Alembic `0009_semantic_chunks_pgvector`) for nearest-neighbor retrieval; HTTP ingestion and RAG injection remain later roadmap items.
 
 ## PostgreSQL: system of record
 
@@ -45,7 +45,7 @@ Redis is not the source of truth for organizations, credentials, accounting, or 
 
 ### pgvector
 
-When semantic retrieval is implemented, pgvector will be evaluated as an extension to the existing PostgreSQL deployment. Keeping vector data beside tenant and authorization data reduces operational complexity for an initial RAG capability.
+Local Compose uses the `pgvector/pgvector:pg17` image. Migrations run `CREATE EXTENSION vector` and create `semantic_chunks` (`organization_id` FK, `content`, fixed-dimension `embedding`, `created_at`). Retrieval is scoped by organization in application use cases; vectors are not shared across tenants.
 
 ### Object storage
 

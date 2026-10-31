@@ -52,7 +52,7 @@ Redis traffic is unencrypted in transit (still private-subnet-only; see the trad
 
 | Later item | Left out of this module |
 | --- | --- |
-| 32 — pgvector and retrieval | pgvector extension, embeddings storage, semantic retrieval wiring |
+| 32 — pgvector and retrieval | RDS: allow `vector` extension on apply; run Alembic `0009` after RDS is available |
 
 ## State
 
