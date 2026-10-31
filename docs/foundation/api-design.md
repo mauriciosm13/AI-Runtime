@@ -20,6 +20,7 @@ The table describes the planned initial API surface. `Planned` routes document t
 | `POST` | `/v1/responses` | Implemented | Creates a provider-neutral model response. |
 | `POST` | `/v1/prompts` | Implemented | Creates the next immutable version of an organization prompt template. |
 | `GET` | `/v1/prompts/{name}` | Implemented | Lists the versions of an organization prompt template. |
+| `POST` | `/v1/semantic_chunks` | Implemented | Embeds and stores organization-scoped knowledge for RAG retrieval. |
 | `GET` | `/v1/models` | Planned | Lists models available to the authenticated organization. |
 | `POST` | `/v1/organizations` | Implemented, operator-only | Creates an organization. |
 | `GET` | `/v1/organizations/{organization_id}` | Implemented, operator-only | Retrieves organization configuration. |
@@ -113,6 +114,8 @@ Exactly one of `messages` or `prompt` is required (`422` / `invalid_request` oth
 `rag` is optional: `{ "enabled": true, "query": "optional override", "top_k": 5, "embedding_model": "text-embedding-3-small" }`. When `enabled` is `true`, the runtime embeds the query (default: last non-empty `user` message after prompt render), retrieves nearest organization-scoped semantic chunks from pgvector, and prepends one `system` message with numbered context before generation. Empty retrieval adds no message. Retrieval completes before streaming starts; `cache: true` hashes augmented messages. Unknown `embedding_model` values return `400` / `unsupported_model`. When the catalog provider adapter is not configured (for example a blank OpenAI key), RAG returns `503` / `provider_error`. Retrieved chunk text and query strings are not logged or persisted.
 
 `POST /v1/prompts` takes `{ "name": "support.reply", "messages": [{ "role": "system|user|assistant", "content": "... {{var}} ..." }] }` (`name` is 1-64 characters of `[A-Za-z0-9._-]`) and returns `201` with the new immutable `version`, the stored `messages`, and the sorted `variables`. `GET /v1/prompts/{name}` returns `{ "versions": [...] }` in ascending order or `404`. Both are scoped to the API key's organization. Templates are configuration; variable values and rendered content are never stored or logged.
+
+`POST /v1/semantic_chunks` takes `{ "content": "non-empty text", "embedding_model": "text-embedding-3-small" }` (`embedding_model` optional, default `text-embedding-3-small`) and returns `201` with `{ "id", "organization_id", "created_at" }`. The runtime embeds `content` with the catalog provider, stores the vector in `semantic_chunks` for the caller's organization, and does not echo `content` or embeddings in the response. Unknown `embedding_model` values return `400` / `unsupported_model`. When the catalog provider adapter is not configured, ingest returns `503` / `provider_error`. Chunk bodies are not logged on the ingest path.
 
 When `stream` is omitted or `false`, a successful call returns `200` JSON with `id`, `model`, `output`, and `usage`. Cache hits also include `cached: true`.
 

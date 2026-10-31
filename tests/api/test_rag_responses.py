@@ -30,15 +30,16 @@ def _embedding(*, first: float = 1.0) -> tuple[float, ...]:
 
 
 class FakeEmbeddingProvider:
-    def __init__(self) -> None:
+    def __init__(self, *, vector: tuple[float, ...] | None = None) -> None:
         self.requests: list[EmbeddingRequest] = []
+        self._vector = vector or _embedding()
 
     async def embed(self, request: EmbeddingRequest) -> EmbeddingResponse:
         self.requests.append(request)
         return EmbeddingResponse(
             id="emb_test",
             model=request.model,
-            data=(EmbeddingVector(index=0, values=_embedding()),),
+            data=(EmbeddingVector(index=0, values=self._vector),),
             usage=EmbeddingUsage(input_tokens=1),
         )
 
