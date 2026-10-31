@@ -4,7 +4,8 @@ from typing import Annotated
 from fastapi import APIRouter, Depends
 from ai_runtime.api.dependencies import AuthenticatedPrincipalDep, get_list_mcp_server_tools, get_list_mcp_servers, get_register_mcp_server
 from ai_runtime.api.schemas.errors import ErrorResponseSchema
-from ai_runtime.api.schemas.mcp_servers import CreateMcpServerRequest, McpServerCreatedSchema, McpServerListSchema, McpServerSummarySchema, McpToolListSchema
+from ai_runtime.api.schemas.mcp_servers import CreateMcpServerRequest, McpServerCreatedSchema, McpServerListSchema
+from ai_runtime.api.schemas.mcp_servers import McpServerSummarySchema, McpToolListSchema
 from ai_runtime.application.mcp.list_mcp_server_tools import ListMcpServerTools
 from ai_runtime.application.mcp.list_mcp_servers import ListMcpServers
 from ai_runtime.application.mcp.register_mcp_server import RegisterMcpServer

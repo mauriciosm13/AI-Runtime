@@ -5,7 +5,8 @@ from datetime import UTC, datetime
 from uuid import uuid4
 from fastapi.testclient import TestClient
 from ai_runtime.api.app import create_app
-from ai_runtime.api.dependencies import get_authenticated_principal, get_create_response, get_resolve_prompt, get_resolve_tools_for_generation
+from ai_runtime.api.dependencies import get_augment_messages_with_rag, get_authenticated_principal, get_create_response
+from ai_runtime.api.dependencies import get_resolve_prompt, get_resolve_tools_for_generation
 from ai_runtime.application.auth.authenticate_api_key import AuthenticatedPrincipal
 from ai_runtime.application.policy.enforce_organization_policy import EnforceOrganizationPolicy
 from ai_runtime.application.resilience.provider_executor import ProviderExecutor
@@ -18,8 +19,8 @@ from tests.application.mcp.fakes import FakeMcpServerRepository, FakeMcpToolClie
 from tests.application.policy.test_enforce_organization_policy import FakeOrganizationPolicyRepository
 from tests.application.prompts.fakes import FakePromptRepository, override_resolve_prompt
 from tests.application.rag.fakes import override_augment_messages_with_rag
-from tests.application.responses.test_create_response import FakeAuditRepository, FakeCostEstimator, FakeIdempotencyStore, FakeMetrics, FakeRateLimiter, FakeResponseCache, FakeUsageRepository
-from ai_runtime.api.dependencies import get_augment_messages_with_rag
+from tests.application.responses.test_create_response import FakeAuditRepository, FakeCostEstimator, FakeIdempotencyStore
+from tests.application.responses.test_create_response import FakeMetrics, FakeRateLimiter, FakeResponseCache, FakeUsageRepository
 
 
 def _client_with_mcp(

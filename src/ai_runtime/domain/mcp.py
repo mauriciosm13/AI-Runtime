@@ -3,7 +3,6 @@
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any
 from urllib.parse import urlparse
 from uuid import UUID
 from ai_runtime.domain.generation import DomainValidationError

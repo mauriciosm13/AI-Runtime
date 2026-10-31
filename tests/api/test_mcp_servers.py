@@ -5,7 +5,8 @@ from uuid import uuid4
 import asyncio
 from fastapi.testclient import TestClient
 from ai_runtime.api.app import create_app
-from ai_runtime.api.dependencies import get_authenticated_principal, get_list_mcp_server_tools, get_list_mcp_servers, get_register_mcp_server
+from ai_runtime.api.dependencies import get_authenticated_principal, get_list_mcp_servers, get_register_mcp_server
+from ai_runtime.api.dependencies import get_list_mcp_server_tools
 from ai_runtime.application.auth.authenticate_api_key import AuthenticatedPrincipal
 from ai_runtime.application.mcp.list_mcp_server_tools import ListMcpServerTools
 from ai_runtime.application.mcp.list_mcp_servers import ListMcpServers

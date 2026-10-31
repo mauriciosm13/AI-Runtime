@@ -57,12 +57,15 @@ class InlineOnlyResolveTools:
         return tuple(inline_tools)
 
 
+McpResolver = InlineOnlyResolveTools | ResolveToolsForGeneration | PassthroughResolveTools
+
+
 def override_resolve_tools_for_generation(
-    resolver: InlineOnlyResolveTools | ResolveToolsForGeneration | PassthroughResolveTools | None = None,
-) -> Callable[[], Awaitable[InlineOnlyResolveTools | ResolveToolsForGeneration | PassthroughResolveTools]]:
+    resolver: McpResolver | None = None,
+) -> Callable[[], Awaitable[McpResolver]]:
     """FastAPI override factory for ``get_resolve_tools_for_generation``."""
 
-    async def _override() -> InlineOnlyResolveTools | ResolveToolsForGeneration | PassthroughResolveTools:
+    async def _override() -> McpResolver:
         return InlineOnlyResolveTools() if resolver is None else resolver
 
     return _override
