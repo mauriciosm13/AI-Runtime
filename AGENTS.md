@@ -367,3 +367,9 @@ The final repository should demonstrate expertise in:
 - Software Architecture
 
 The project should be professional enough to be presented during senior backend and AI infrastructure engineering interviews.
+
+---
+
+# Subagents
+
+Sempre que a tarefa for complexa, o orchestrator gera o CONTEXT.md uma vez e os demais agentes leem dele. Subagents universais ficam em `~/.cursor/agents/` e as cópias de exemplo em `.cursor/agents/`. Nenhum subagent declara `model` (inherit). Explorer e reviewer são readonly. Retornos ao parent são resumos concisos.
