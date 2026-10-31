@@ -21,13 +21,14 @@ The table describes the planned initial API surface. `Planned` routes document t
 | `POST` | `/v1/prompts` | Implemented | Creates the next immutable version of an organization prompt template. |
 | `GET` | `/v1/prompts/{name}` | Implemented | Lists the versions of an organization prompt template. |
 | `GET` | `/v1/models` | Planned | Lists models available to the authenticated organization. |
-| `POST` | `/v1/organizations` | Planned, operator-only | Creates an organization. |
-| `GET` | `/v1/organizations/{organization_id}` | Planned, operator-only | Retrieves organization configuration. |
-| `POST` | `/v1/api_keys` | Planned, operator-only | Creates an API key for an organization. |
-| `GET` | `/v1/api_keys` | Planned, operator-only | Lists API-key metadata without secret values. |
-| `DELETE` | `/v1/api_keys/{key_id}` | Planned, operator-only | Revokes an API key. |
+| `POST` | `/v1/organizations` | Implemented, operator-only | Creates an organization. |
+| `GET` | `/v1/organizations/{organization_id}` | Implemented, operator-only | Retrieves organization configuration. |
+| `POST` | `/v1/api_keys` | Implemented, operator-only | Creates an API key for an organization. |
+| `GET` | `/v1/api_keys` | Implemented, operator-only | Lists API-key metadata without secret values. |
+| `DELETE` | `/v1/api_keys/{key_id}` | Implemented, operator-only | Revokes an API key. |
+| `POST` | `/v1/api_keys/{key_id}/rotate` | Implemented, operator-only | Revokes an active key and issues a replacement with a new one-time secret. |
 
-Administrative authorization details will be designed with the authentication feature. They are intentionally not assumed to be exposed to every API-key holder.
+Operator routes require `Authorization: Bearer <operator token>` where the token matches `AI_RUNTIME_OPERATOR_TOKEN` (constant-time compare). Valid tenant `airt_...` keys receive `403` / `forbidden`. When the operator token is not configured, operator routes respond `503` / `provider_error` with a safe message. Tenant application keys must not access these routes.
 
 ## Authentication
 

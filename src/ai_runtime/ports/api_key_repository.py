@@ -33,3 +33,7 @@ class ApiKeyRepository(Protocol):
     async def save(self, api_key: ApiKey) -> ApiKey:
         """Persist updates to an existing API key (e.g. revoke)."""
         ...
+
+    async def revoke_and_add(self, revoked: ApiKey, replacement: ApiKey) -> ApiKey:
+        """Atomically revoke ``revoked`` and insert ``replacement`` in one transaction."""
+        ...

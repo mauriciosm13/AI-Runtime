@@ -43,7 +43,7 @@ The foundational system-design documents define the product boundary before runt
 
 ## Current status
 
-The project has a minimal FastAPI bootstrap with typed environment configuration and an operational liveness endpoint at `GET /health`. Provider-neutral generation contracts live in `domain/`, `ports/` defines external capability interfaces (`ModelProvider`, `OrganizationRepository`, `ApiKeyRepository`, `ApiKeyHasher`, `UsageRepository`, `CostEstimator`, `ResponseCache`), and `application/` contains use cases (`CreateResponse`, `ModelRouter`, `CreateOrganization`, `GetOrganization`, `CreateApiKey`, `RevokeApiKey`, `ListApiKeysForOrganization`, `AuthenticateApiKey`). Concrete provider adapters are `OpenAIModelProvider` (`providers/openai/`, OpenAI Chat Completions over `httpx`), `AnthropicModelProvider` (`providers/anthropic/`, Anthropic Messages over `httpx`), and `GeminiModelProvider` (`providers/gemini/`, Gemini generateContent over `httpx`). `CreateResponse` resolves the requested model through `ModelRouter` against `DEFAULT_MODEL_CATALOG` (`gpt-4o`, `gpt-4o-mini` → `openai`; `claude-3-5-sonnet-20241022` → `anthropic`; `gemini-2.5-flash` → `gemini`) before calling a provider. `POST /v1/responses` requires `Authorization: Bearer airt_...`, runs `AuthenticateApiKey` (prefix lookup + argon2id verify, suspended-org rejection), then `CreateResponse` through HTTP with Pydantic schemas, dependency injection, and a shared `httpx.AsyncClient` managed by the application lifespan. Clients may set `stream: true` to receive Server-Sent Events (`response.delta`, `response.completed`, `response.error`); omitting `stream` or setting `false` keeps the JSON contract. `Idempotency-Key` is rejected on streaming requests. Clients may set `cache: true` on non-streaming requests to replay an identical payload from Redis (`cached: true` on hit); `cache` plus `stream` is rejected. Usage is recorded after a completed stream, not after a mid-stream failure. After a successful provider response, `CreateResponse` persists a `UsageRecord` (tokens + estimated USD cost via `StaticCostEstimator`) keyed by `request_id`, with `provider` taken from the resolved route. `GET /health` and `GET /metrics` stay unauthenticated. `GET /metrics` exposes Prometheus text for HTTP and generation counters. Successful generations write an `audit_events` row without prompt or response content. Client-facing errors use a standardized provider-neutral envelope with stable error codes (`unauthorized`, `forbidden`, `unsupported_model`, …) and a per-request correlation identifier (`X-Request-ID`). Structured JSON request logs record request start and completion with the same identifier and never log Authorization headers or secrets. Persistence wiring uses SQLAlchemy 2 async with asyncpg: the application lifespan owns the engine and session factory, and FastAPI can inject request-scoped `AsyncSession` values. Organization tenancy is modeled in `domain/organization.py`, persisted through `SqlAlchemyOrganizationRepository` and the `organizations` table (Alembic revision `0002_organizations`). API keys are modeled in `domain/api_key.py`, hashed at rest with argon2id (`Argon2ApiKeyHasher`), persisted through `SqlAlchemyApiKeyRepository` and the `api_keys` table (Alembic revision `0003_api_keys`). Usage accounting is modeled in `domain/usage.py` and persisted through `SqlAlchemyUsageRepository` and the `usage_records` table (Alembic revision `0004_usage_records`). Create returns the plaintext `airt_...` secret once; only prefix + hash are stored. `POST /v1/responses` also accepts `prompt: {name, version?, variables}` instead of `messages` to render an organization-scoped, versioned prompt template (managed through `POST /v1/prompts` and `GET /v1/prompts/{name}`), plus an opt-in `context` budget with truncation; templates are stored as configuration and rendered content is never persisted. AWS network and an empty Fargate cluster are defined in `infra/terraform` ([ADR 0009](docs/adr/0009-aws-terraform-foundation.md)); CI validates the module and does not apply it. A separate Python client in `sdk/python` (`ai_runtime_sdk`) calls `POST /v1/responses` and the prompt routes, including SSE streaming ([ADR 0011](docs/adr/0011-python-sdk.md)). Operator HTTP routes for organizations/API keys, usage reporting/quotas, and persisted routing policies are not implemented yet.
+The project is a FastAPI application with typed environment configuration and an operational liveness endpoint at `GET /health`. Provider-neutral generation contracts live in `domain/`, `ports/` defines external capability interfaces (`ModelProvider`, `OrganizationRepository`, `ApiKeyRepository`, `ApiKeyHasher`, `UsageRepository`, `CostEstimator`, `ResponseCache`), and `application/` contains use cases (`CreateResponse`, `ModelRouter`, `CreateOrganization`, `GetOrganization`, `CreateApiKey`, `RevokeApiKey`, `ListApiKeysForOrganization`, `AuthenticateApiKey`). Concrete provider adapters are `OpenAIModelProvider` (`providers/openai/`, OpenAI Chat Completions over `httpx`), `AnthropicModelProvider` (`providers/anthropic/`, Anthropic Messages over `httpx`), and `GeminiModelProvider` (`providers/gemini/`, Gemini generateContent over `httpx`). `CreateResponse` resolves the requested model through `ModelRouter` against `DEFAULT_MODEL_CATALOG` (`gpt-4o`, `gpt-4o-mini` → `openai`; `claude-3-5-sonnet-20241022` → `anthropic`; `gemini-2.5-flash` → `gemini`) before calling a provider. `POST /v1/responses` requires `Authorization: Bearer airt_...`, runs `AuthenticateApiKey` (prefix lookup + argon2id verify, suspended-org rejection), then `CreateResponse` through HTTP with Pydantic schemas, dependency injection, and a shared `httpx.AsyncClient` managed by the application lifespan. Clients may set `stream: true` to receive Server-Sent Events (`response.delta`, `response.completed`, `response.error`); omitting `stream` or setting `false` keeps the JSON contract. `Idempotency-Key` is rejected on streaming requests. Clients may set `cache: true` on non-streaming requests to replay an identical payload from Redis (`cached: true` on hit); `cache` plus `stream` is rejected. Usage is recorded after a completed stream, not after a mid-stream failure. After a successful provider response, `CreateResponse` persists a `UsageRecord` (tokens + estimated USD cost via `StaticCostEstimator`) keyed by `request_id`, with `provider` taken from the resolved route. `GET /health` and `GET /metrics` stay unauthenticated. `GET /metrics` exposes Prometheus text for HTTP and generation counters. Successful generations write an `audit_events` row without prompt or response content. Client-facing errors use a standardized provider-neutral envelope with stable error codes (`unauthorized`, `forbidden`, `unsupported_model`, …) and a per-request correlation identifier (`X-Request-ID`). Structured JSON request logs record request start and completion with the same identifier and never log Authorization headers or secrets. Persistence wiring uses SQLAlchemy 2 async with asyncpg: the application lifespan owns the engine and session factory, and FastAPI can inject request-scoped `AsyncSession` values. Organization tenancy is modeled in `domain/organization.py`, persisted through `SqlAlchemyOrganizationRepository` and the `organizations` table (Alembic revision `0002_organizations`). API keys are modeled in `domain/api_key.py`, hashed at rest with argon2id (`Argon2ApiKeyHasher`), persisted through `SqlAlchemyApiKeyRepository` and the `api_keys` table (Alembic revision `0003_api_keys`). Usage accounting is modeled in `domain/usage.py` and persisted through `SqlAlchemyUsageRepository` and the `usage_records` table (Alembic revision `0004_usage_records`). Create returns the plaintext `airt_...` secret once; only prefix + hash are stored. `POST /v1/responses` also accepts `prompt: {name, version?, variables}` instead of `messages` to render an organization-scoped, versioned prompt template (managed through `POST /v1/prompts` and `GET /v1/prompts/{name}`), plus an opt-in `context` budget with truncation; templates are stored as configuration and rendered content is never persisted. AWS network, ECR, an ECS Fargate service, RDS PostgreSQL, ElastiCache Redis, a Secrets Manager secret, CloudWatch alarms and a dashboard, and a manual deploy workflow are defined in `infra/terraform` and `.github/workflows/deploy.yml` ([ADR 0009](docs/adr/0009-aws-terraform-foundation.md), [ADR 0010](docs/adr/0010-ecr-image-pipeline-and-ecs-service.md)). CI validates Terraform and does not apply it. Provider API keys go into Secrets Manager, not into the task environment. The load balancer listens on HTTP until a certificate exists, and ElastiCache traffic is not encrypted in transit. A separate Python client in `sdk/python` (`ai_runtime_sdk`) calls `POST /v1/responses` and the prompt routes, including SSE streaming ([ADR 0011](docs/adr/0011-python-sdk.md)). Operator HTTP routes for organizations and API keys are implemented under `/v1/organizations` and `/v1/api_keys` (including rotate) and require `AI_RUNTIME_OPERATOR_TOKEN`; usage reporting/quotas and persisted routing policies are not implemented yet.
 
 ## Repository layout
 
@@ -51,23 +51,23 @@ The project has a minimal FastAPI bootstrap with typed environment configuration
 src/
   ai_runtime/          # distributable application package
     api/               # FastAPI application factory, routes, schemas, dependencies, middleware
-    application/       # use cases (responses, routing, organizations, api_keys, auth)
+    application/       # use cases (responses, routing, organizations, api_keys, auth, prompts, context)
     config/            # typed Settings loaded from the environment
-    domain/            # provider-neutral generation, routing catalog, organization, API-key, and usage contracts
-    ports/             # interfaces (ModelProvider, repositories, ApiKeyHasher, CostEstimator)
-    infrastructure/    # SQLAlchemy, ORM models, repositories, argon2id hasher, static pricing
+    domain/            # provider-neutral generation, routing, organization, API-key, usage, prompts, and audit contracts
+    ports/             # interfaces (providers, repositories, rate limit, idempotency, cache, audit, metrics)
+    infrastructure/    # SQLAlchemy, ORM models, repositories, Redis, argon2id hasher, static pricing
     providers/         # concrete model-provider adapters (OpenAI, Anthropic, and Gemini via httpx)
-    telemetry/         # structured logging configuration
+    telemetry/         # structured logs, in-process metrics, and trace spans
 alembic/               # Alembic env and version scripts
 alembic.ini            # Alembic configuration (URL from Settings)
 tests/                 # test suite
-.github/               # GitHub Actions (quality, Docker build, Conventional Commits)
+.github/               # GitHub Actions (quality, SDK, Terraform, Docker, deploy, Conventional Commits)
 .commitlintrc.yaml     # commitlint rules for Conventional Commits
 Dockerfile             # multi-stage image for local execution (includes Alembic)
 compose.yaml           # Docker Compose stack (Postgres + migrate + API)
 .env.example           # environment template for Compose runs
 .dockerignore          # build context exclusions
-infra/terraform/       # AWS network, ECS cluster, load balancer, ECR, and ECS service (no apply in CI)
+infra/terraform/       # AWS network, ECS, ALB, ECR, RDS, ElastiCache, Secrets Manager, CloudWatch (no apply in CI)
 sdk/python/            # Python client (ai-runtime-sdk); HTTP only, not imported by the server
 ```
 
@@ -110,6 +110,11 @@ Application settings are loaded from environment variables with the `AI_RUNTIME_
 | `AI_RUNTIME_GEMINI_API_KEY` | `gemini_api_key` | `str` | `""` |
 | `AI_RUNTIME_GEMINI_BASE_URL` | `gemini_base_url` | `str` | `https://generativelanguage.googleapis.com` |
 | `AI_RUNTIME_DATABASE_URL` | `database_url` | `str` (`postgresql+asyncpg://...`) | `postgresql+asyncpg://ai_runtime:ai_runtime@localhost:5432/ai_runtime` |
+| `AI_RUNTIME_REDIS_URL` | `redis_url` | `str` (`redis://` or `rediss://`) | `redis://localhost:6379/0` |
+| `AI_RUNTIME_RATE_LIMIT_REQUESTS_PER_MINUTE` | `rate_limit_requests_per_minute` | `int` | `60` |
+| `AI_RUNTIME_RATE_LIMIT_BURST` | `rate_limit_burst` | `int` | `60` |
+| `AI_RUNTIME_IDEMPOTENCY_TTL_SECONDS` | `idempotency_ttl_seconds` | `int` | `86400` |
+| `AI_RUNTIME_RESPONSE_CACHE_TTL_SECONDS` | `response_cache_ttl_seconds` | `int` | `3600` |
 | `AI_RUNTIME_PROVIDER_MAX_RETRIES` | `provider_max_retries` | `int` | `2` |
 | `AI_RUNTIME_PROVIDER_RETRY_BASE_DELAY_SECONDS` | `provider_retry_base_delay_seconds` | `float` | `0.25` |
 | `AI_RUNTIME_PROVIDER_FAILOVER_ENABLED` | `provider_failover_enabled` | `bool` | `true` |
@@ -158,11 +163,11 @@ The printed path should include `src/ai_runtime/`.
 
 ## Continuous integration
 
-Pull requests and pushes to `main` run three GitHub Actions workflows:
+Pull requests and pushes to `main` run four GitHub Actions workflows:
 
 | Workflow | What it checks |
 |---|---|
-| [CI](.github/workflows/ci.yml) | Editable install (`pip install -e ".[dev]"`), unit tests (`pytest` with Postgres 17), `ruff check`, `ruff format --check`, `mypy`, and Terraform `fmt` plus `validate` |
+| [CI](.github/workflows/ci.yml) | Editable install (`pip install -e ".[dev]"`), unit tests (`pytest` with Postgres 17), `ruff check`, `ruff format --check`, `mypy`, Terraform `fmt` plus `validate`, and the same checks for `sdk/python` |
 | [Deploy](.github/workflows/deploy.yml) | Builds and pushes an image tagged with the commit SHA to ECR on every push to `main`; deploys to ECS only on a manual run, through GitHub OIDC |
 | [Docker](.github/workflows/docker.yml) | Unit tests (`pytest`), then multi-stage image build (`ai-runtime:ci`), no registry push |
 | [Conventional Commits](.github/workflows/conventional-commits.yml) | Commit messages (`commitlint`) and PR titles (semantic pull request) |
@@ -184,7 +189,7 @@ uvicorn ai_runtime.api.app:create_app --factory --reload
 While the server is running:
 
 - Health: [http://127.0.0.1:8000/health](http://127.0.0.1:8000/health)
-- Create response: `POST /v1/responses` (requires `AI_RUNTIME_OPENAI_API_KEY` for real provider calls)
+- Create response: `POST /v1/responses` with `Authorization: Bearer airt_...` (set the API key for the provider behind the requested model: OpenAI, Anthropic, or Gemini)
 - OpenAPI (Swagger UI): [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
 - OpenAPI JSON: [http://127.0.0.1:8000/openapi.json](http://127.0.0.1:8000/openapi.json)
 
@@ -198,6 +203,7 @@ Example generation request:
 
 ```bash
 curl -sS http://127.0.0.1:8000/v1/responses \
+  -H "Authorization: Bearer airt_..." \
   -H "Content-Type: application/json" \
   -d '{
     "model": "gpt-4o-mini",
@@ -235,7 +241,7 @@ The expected response is `200 OK` with `{"status":"ok"}`.
 
 Alembic is configured at the repository root (`alembic.ini` + `alembic/`). The async environment loads `AI_RUNTIME_DATABASE_URL` through the same `Settings` object as the API and targets `ai_runtime.infrastructure.db.base.Base.metadata`.
 
-Revision `0001_baseline` is an intentional empty migration that establishes Alembic version tracking. Revision `0002_organizations` creates the `organizations` table (`id`, `name`, unique `slug`, `status`, timestamps). Revision `0003_api_keys` creates the `api_keys` table (`id`, `organization_id` FK, optional `name`, indexed `prefix`, argon2id `secret_hash`, `status`, timestamps).
+Revision `0001_baseline` is an intentional empty migration that establishes Alembic version tracking. Later revisions create `organizations` (`0002`), `api_keys` (`0003`), `usage_records` (`0004`), organization policies and model entitlements (`0005`), `prompt_templates` (`0007`), and `audit_events` (`0008`). There is no revision `0006`.
 
 From the repository root (with Postgres reachable at the configured URL):
 
@@ -277,14 +283,14 @@ While the stack is running, the same endpoints documented above are available at
 
 `GET /health` does not require a live database or Redis connection; it remains a liveness probe.
 
-## Planned technology stack
+## Technology stack
 
 - Python 3.13
 - FastAPI and Pydantic v2
 - SQLAlchemy 2 and Alembic
 - PostgreSQL and Redis
 - Docker, Docker Compose, Terraform, and GitHub Actions
-- AWS deployment targets: ECS Fargate, RDS, ElastiCache, ALB, ECR, IAM, Secrets Manager, and CloudWatch
+- AWS in Terraform: VPC, ALB, ECS Fargate, ECR, IAM, RDS PostgreSQL, ElastiCache Redis, Secrets Manager, and CloudWatch logs, alarms, and a dashboard
 
 ## Development principles
 
@@ -297,14 +303,9 @@ While the stack is running, the same endpoints documented above are available at
 
 ## Roadmap
 
-1. Project discovery, architecture, and engineering standards
-2. Application bootstrap, testing, linting, Docker, and CI
-3. Authentication, organizations, API keys, and JWT
-4. Provider layer and model routing
-5. Streaming and tool calling
-6. Context engine
-7. AWS deployment and observability
-8. SDKs
+Delivered in this repository: provider-neutral generation, OpenAI / Anthropic / Gemini adapters, routing, retries and failover, API-key auth, organizations, usage and cost, Redis rate limit, idempotency and response cache, streaming, tool calling, prompts and context, metrics, tracing and audit, the AWS stack (network, ECR, ECS, RDS, ElastiCache, Secrets Manager, CloudWatch), and the Python SDK in `sdk/python`.
+
+Still open: embeddings, pgvector retrieval, RAG, MCP tools, and example LangChain and multi-agent clients. JWT is not part of the current auth design. pgvector is the next Terraform gap.
 
 ## Contributing
 

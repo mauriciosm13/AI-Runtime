@@ -15,6 +15,8 @@ class ErrorCode(StrEnum):
     UNSUPPORTED_MODEL = "unsupported_model"
     CONFLICT = "conflict"
     PROMPT_NOT_FOUND = "prompt_not_found"
+    ORGANIZATION_NOT_FOUND = "organization_not_found"
+    API_KEY_NOT_FOUND = "api_key_not_found"
     CONTEXT_LENGTH_EXCEEDED = "context_length_exceeded"
     PROVIDER_ERROR = "provider_error"
     INTERNAL_ERROR = "internal_error"

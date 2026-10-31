@@ -46,6 +46,7 @@ class Settings(BaseSettings):
     provider_max_retries: int = 2
     provider_retry_base_delay_seconds: float = 0.25
     provider_failover_enabled: bool = True
+    operator_token: str = ""
 
     @field_validator("database_url")
     @classmethod
