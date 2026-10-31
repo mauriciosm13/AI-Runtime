@@ -13,6 +13,7 @@ from ai_runtime.api.dependencies import (
     CreateResponseDep,
     RequestIdDep,
     ResolvePromptDep,
+    ResolveToolsForGenerationDep,
 )
 from ai_runtime.api.errors import APIError, ErrorCode
 from ai_runtime.api.schemas.errors import ErrorResponseSchema
@@ -86,10 +87,10 @@ def _format_stream_error(err: ProviderError, request_id: str) -> str:
         401: {"model": ErrorResponseSchema, "description": "Missing or invalid API key"},
         403: {"model": ErrorResponseSchema, "description": "Organization suspended or model not entitled"},
         409: {"model": ErrorResponseSchema, "description": "Idempotency key already in progress"},
-        404: {"model": ErrorResponseSchema, "description": "Prompt template not found"},
+        404: {"model": ErrorResponseSchema, "description": "Prompt template or MCP server not found"},
         422: {"model": ErrorResponseSchema, "description": "Invalid request or context budget exceeded"},
         429: {"model": ErrorResponseSchema, "description": "Organization rate limit exceeded"},
-        502: {"model": ErrorResponseSchema, "description": "Provider failure"},
+        502: {"model": ErrorResponseSchema, "description": "Provider or MCP discovery failure"},
         503: {"model": ErrorResponseSchema, "description": "Embedding provider not configured"},
     },
 )
@@ -100,6 +101,7 @@ async def post_responses(
     request_id: RequestIdDep,
     resolve_prompt: ResolvePromptDep,
     augment_messages_with_rag: AugmentMessagesWithRagDep,
+    resolve_tools: ResolveToolsForGenerationDep,
     build_context: BuildContextDep,
     idempotency_key_header: Annotated[str | None, Header(alias=_IDEMPOTENCY_KEY_HEADER)] = None,
 ) -> ResponseSchema | StreamingResponse:
@@ -115,17 +117,25 @@ async def post_responses(
             current,
             body.rag.to_domain(),
         )
+    resolved_tools = tuple(tool.to_domain() for tool in body.tools)
+    if body.mcp_enabled:
+        assert body.mcp is not None
+        resolved_tools = await resolve_tools.execute(
+            principal.organization_id,
+            resolved_tools,
+            body.mcp.servers,
+        )
     if body.needs_context_check:
         current = messages if messages is not None else tuple(item.to_domain() for item in body.messages or [])
         messages = build_context.execute(
             model=body.model,
             messages=current,
-            tools=[tool.to_domain() for tool in body.tools],
+            tools=list(resolved_tools),
             max_output_tokens=body.max_output_tokens,
             policy=body.context.to_domain() if body.context is not None else ContextPolicy(),
         )
     command = CreateResponseCommand(
-        request=body.to_domain(messages),
+        request=body.to_domain(messages, tools=resolved_tools),
         request_id=request_id,
         organization_id=principal.organization_id,
         api_key_id=principal.api_key_id,

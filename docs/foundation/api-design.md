@@ -21,6 +21,9 @@ The table describes the planned initial API surface. `Planned` routes document t
 | `POST` | `/v1/prompts` | Implemented | Creates the next immutable version of an organization prompt template. |
 | `GET` | `/v1/prompts/{name}` | Implemented | Lists the versions of an organization prompt template. |
 | `POST` | `/v1/semantic_chunks` | Implemented | Embeds and stores organization-scoped knowledge for RAG retrieval. |
+| `POST` | `/v1/mcp_servers` | Implemented | Registers an organization MCP tool server (HTTPS). |
+| `GET` | `/v1/mcp_servers` | Implemented | Lists registered MCP servers (metadata only). |
+| `GET` | `/v1/mcp_servers/{name}/tools` | Implemented | Discovers tools from a registered MCP server. |
 | `GET` | `/v1/models` | Planned | Lists models available to the authenticated organization. |
 | `POST` | `/v1/organizations` | Implemented, operator-only | Creates an organization. |
 | `GET` | `/v1/organizations/{organization_id}` | Implemented, operator-only | Retrieves organization configuration. |
@@ -103,7 +106,7 @@ Clients send `model`, `messages`, optional `temperature` / `max_output_tokens`, 
 
 `tools` is a list of `{name, description, parameters}` where `parameters` is a JSON Schema object. The runtime does not execute tools. When the model requests a call, `output.tool_calls` contains `{id, name, arguments}`. Clients send results as `role: tool` messages with `tool_call_id`.
 
-`stream: true` combined with `tools` or tool messages is rejected (`422` / `invalid_request`) in this slice. MCP tool servers are a later roadmap item.
+`stream: true` combined with `tools`, `mcp`, or tool messages is rejected (`422` / `invalid_request`) in this slice.
 
 `cache: true` stores the successful JSON response in Redis under `cache:resp:{organization_id}:{sha256}` with `AI_RUNTIME_RESPONSE_CACHE_TTL_SECONDS` (default 1h). A later identical request (same organization + model, messages, tools, temperature, max_output_tokens) returns that payload with `cached: true`, skips the provider, and does not write usage. The prompt is hashed, not stored. Cache is opt-in; omitting `cache` or setting `false` never reads or writes the cache. Redis failures fail open (miss). `cache: true` plus `stream: true` is rejected (`422` / `invalid_request`). Invalidation is TTL only. This path is distinct from `Idempotency-Key`; a completed idempotency record is replayed first.
 
@@ -116,6 +119,10 @@ Exactly one of `messages` or `prompt` is required (`422` / `invalid_request` oth
 `POST /v1/prompts` takes `{ "name": "support.reply", "messages": [{ "role": "system|user|assistant", "content": "... {{var}} ..." }] }` (`name` is 1-64 characters of `[A-Za-z0-9._-]`) and returns `201` with the new immutable `version`, the stored `messages`, and the sorted `variables`. `GET /v1/prompts/{name}` returns `{ "versions": [...] }` in ascending order or `404`. Both are scoped to the API key's organization. Templates are configuration; variable values and rendered content are never stored or logged.
 
 `POST /v1/semantic_chunks` takes `{ "content": "non-empty text", "embedding_model": "text-embedding-3-small" }` (`embedding_model` optional, default `text-embedding-3-small`) and returns `201` with `{ "id", "organization_id", "created_at" }`. The runtime embeds `content` with the catalog provider, stores the vector in `semantic_chunks` for the caller's organization, and does not echo `content` or embeddings in the response. Unknown `embedding_model` values return `400` / `unsupported_model`. When the catalog provider adapter is not configured, ingest returns `503` / `provider_error`. Chunk bodies are not logged on the ingest path.
+
+`POST /v1/mcp_servers` takes `{ "name", "url", "headers": {} }` (`headers` optional) and returns `201` with `{ "name", "organization_id", "created_at" }`. Only `https` URLs are accepted. `headers` and full URLs are configuration secrets: they are not returned on list/get routes and are not logged. `GET /v1/mcp_servers` lists `{ "servers": [{ "name", "created_at" }] }`. `GET /v1/mcp_servers/{name}/tools` performs a live MCP `tools/list` and returns tools with names prefixed as `{name}.{tool}` for use on `POST /v1/responses`.
+
+`mcp` on `POST /v1/responses` is optional: `{ "servers": ["crm"] }`. Each name must be registered for the caller's organization. The runtime merges discovered MCP tools (namespaced) with inline `tools` before generation. Unknown server names return `404` / `mcp_server_not_found`. MCP discovery failures return `502` / `mcp_error`. The runtime does not execute MCP `tools/call` on this path (ADR 0005); clients complete the tool loop with `role: tool` messages.
 
 When `stream` is omitted or `false`, a successful call returns `200` JSON with `id`, `model`, `output`, and `usage`. Cache hits also include `cached: true`.
 

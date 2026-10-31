@@ -61,6 +61,7 @@ PostgreSQL supports initial operational usage reporting. A dedicated analytics p
 - Usage records must include a request identifier so retries and reconciliation can avoid double counting.
 - Provider calls cannot participate in a database transaction; application workflows must model partial failure explicitly.
 - `prompt_templates` (`0007_prompt_templates`) stores operator-authored, immutable, organization-scoped prompt template versions (`id`, `organization_id` FK, `name`, `version`, JSONB `messages`, `created_at`; unique per organization + name + version). This is configuration, not end-user content: variable values and rendered messages are never stored.
+- `mcp_servers` (`0010_mcp_servers`) stores tenant-registered HTTPS MCP tool server endpoints (`id`, `organization_id` FK, `name`, `url`, JSONB `headers`, `created_at`; unique per organization + name). Auth headers are configuration secrets and are not returned by list APIs or logged.
 - Retention, deletion, and anonymization policies are product decisions that must be defined before persistent prompt or response content is stored.
 - Database schema changes are versioned migrations and never ad-hoc production changes.
 

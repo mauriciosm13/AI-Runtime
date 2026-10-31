@@ -130,14 +130,14 @@ PR2 would add call route, `call_tool` on port/client, ADR 0014, and optional res
 
 ## Critérios de aceitação (PR1)
 
-- [ ] Tenant can `POST /v1/mcp_servers` and `GET /v1/mcp_servers`; registration is scoped to API key `organization_id` only (never accept `organization_id` in body).
-- [ ] `GET /v1/mcp_servers/{name}/tools` returns JSON Schema–compatible tool definitions mapped from MCP.
-- [ ] `POST /v1/responses` with `mcp.servers` merges MCP tools into the model request; inline `tools` still work; assistant `output.tool_calls` shape unchanged.
-- [ ] Unknown server name → `404` / `mcp_server_not_found`; MCP unreachable → bounded timeout and stable error code.
-- [ ] `stream: true` with `mcp` or tools rejected with `422` / `invalid_request`.
-- [ ] Response cache fingerprint includes resolved MCP tool definitions.
-- [ ] MCP secrets and tool payloads are not written to structured logs or audit content fields.
-- [ ] pytest, ruff, mypy CI green; OpenAPI documents new routes and `mcp` field.
+- [x] Tenant can `POST /v1/mcp_servers` and `GET /v1/mcp_servers`; registration is scoped to API key `organization_id` only (never accept `organization_id` in body).
+- [x] `GET /v1/mcp_servers/{name}/tools` returns JSON Schema–compatible tool definitions mapped from MCP.
+- [x] `POST /v1/responses` with `mcp.servers` merges MCP tools into the model request; inline `tools` still work; assistant `output.tool_calls` shape unchanged.
+- [x] Unknown server name → `404` / `mcp_server_not_found`; MCP unreachable → bounded timeout and stable error code.
+- [x] `stream: true` with `mcp` or tools rejected with `422` / `invalid_request`.
+- [x] Response cache fingerprint includes resolved MCP tool definitions.
+- [x] MCP secrets and tool payloads are not written to structured logs or audit content fields.
+- [x] pytest, ruff, mypy CI green; OpenAPI documents new routes and `mcp` field.
 
 ---
 

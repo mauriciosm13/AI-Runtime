@@ -7,6 +7,7 @@ from ai_runtime.api.middleware.request_context import register_request_context_m
 from ai_runtime.api.routes.api_keys import router as api_keys_router
 from ai_runtime.api.routes.health import router as health_router
 from ai_runtime.api.routes.metrics import router as metrics_router
+from ai_runtime.api.routes.mcp_servers import router as mcp_servers_router
 from ai_runtime.api.routes.organizations import router as organizations_router
 from ai_runtime.api.routes.prompts import router as prompts_router
 from ai_runtime.api.routes.responses import router as responses_router
@@ -40,6 +41,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(responses_router, prefix="/v1")
     app.include_router(prompts_router, prefix="/v1")
     app.include_router(semantic_chunks_router, prefix="/v1")
+    app.include_router(mcp_servers_router, prefix="/v1")
     app.include_router(organizations_router, prefix="/v1")
     app.include_router(api_keys_router, prefix="/v1")
     return app
