@@ -1,6 +1,6 @@
 """POST /v1/responses RAG integration tests."""
 
-from uuid import uuid4
+from uuid import UUID, uuid4
 from fastapi.testclient import TestClient
 from ai_runtime.api.app import create_app
 from ai_runtime.api.dependencies import get_augment_messages_with_rag, get_authenticated_principal, get_create_response, get_resolve_prompt
@@ -97,7 +97,13 @@ def test_post_responses_injects_rag_context_before_generation() -> None:
     chunk_id = uuid4()
 
     class ScopedChunks(FakeSemanticRetrievalRepository):
-        async def search(self, organization_id, query_embedding, *, limit: int) -> list[SemanticSearchResult]:
+        async def search(
+            self,
+            organization_id: UUID,
+            query_embedding: tuple[float, ...],
+            *,
+            limit: int,
+        ) -> list[SemanticSearchResult]:
             assert organization_id == principal.organization_id
             assert limit == 2
             return [SemanticSearchResult(chunk_id=chunk_id, content="Runbook step 1", distance=0.1)]
