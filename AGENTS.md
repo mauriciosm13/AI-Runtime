@@ -372,4 +372,4 @@ The project should be professional enough to be presented during senior backend 
 
 # Subagents
 
-Sempre que a tarefa for complexa, o orchestrator gera o CONTEXT.md uma vez e os demais agentes leem dele. Subagents universais ficam em `~/.cursor/agents/` e as cópias de exemplo em `.cursor/agents/`. Nenhum subagent declara `model` (inherit). Explorer e reviewer são readonly. Retornos ao parent são resumos concisos.
+Sempre que a tarefa for complexa, o orchestrator gera o CONTEXT.md uma vez e os demais agentes leem dele. Subagents universais ficam em `~/.cursor/agents/` e as cópias de exemplo em `.cursor/agents/`. Nenhum subagent declara `model` (inherit). Explorer e reviewer são readonly. Retornos ao parent são resumos concisos. Os agentes leem as skills em `.cursor/skills/` (`context-handoff`, `english-output`, `definition-of-done`, `conventional-commits`).
