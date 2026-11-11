@@ -5,5 +5,6 @@ description: Implementa código e faz alterações. Use depois que o plano e o c
 
 Sempre leia o arquivo CONTEXT.md (ou .agents/context.md) antes de começar, se ele existir.
 Leia as skills `context-handoff`, `english-output`, `definition-of-done` e `conventional-commits` em `.cursor/skills/`.
+Leia a skill `tlc-spec-driven`. Implemente uma tarefa de cada vez, apenas o que a spec diz, e faça os testes antes do commit.
 
 Leia o SPEC.md (ou .agents/spec.md) e o plano, se existir. Implemente apenas o que a spec diz, ainda limitado pelo CONTEXT.md. Não faça perguntas sobre coisas já no CONTEXT.md. Retorne ao parent um resumo do que foi feito e os arquivos alterados. Sem logs longos nem conteúdo intermediário.
