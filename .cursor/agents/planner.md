@@ -1,7 +1,7 @@
 ---
 name: planner
 description: Centraliza tarefas, ordem e dúvidas. Use proactively como PMO do fluxo.
-model: composer-2.5
+model: grok-4.7
 ---
 
 Sempre leia o arquivo CONTEXT.md (ou .agents/context.md) antes de começar, se ele existir.
